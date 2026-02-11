@@ -321,78 +321,152 @@
     }
 
     /* Title Screen */
+    /* Full-Screen Immersive Title Screen */
     #titleScreen {
       position: fixed;
       inset: 0;
       display: flex;
       align-items: center;
       justify-content: center;
-      background: linear-gradient(180deg, #070a10, #0b0f17 35%, #070a10);
-      backdrop-filter: blur(2px);
       z-index: 9999;
       opacity: 1;
       transition: opacity 0.3s ease-out;
+      overflow: hidden;
     }
+
+    #titleScreen::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at 50% 40%, rgba(96, 165, 250, 0.15), transparent 60%),
+                  linear-gradient(135deg, #070a10 0%, #0b0f17 35%, #0a0d15 70%, #050608 100%);
+      z-index: 1;
+    }
+
+    #titleScreen::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at center, transparent 0%, rgba(0, 0, 0, 0.6) 100%);
+      z-index: 1;
+      pointer-events: none;
+    }
+
     #titleScreen.hidden {
       opacity: 0;
       pointer-events: none;
     }
-    #titleScreen .card {
-      width: 90%;
-      max-width: 420px;
-      border: 1px solid var(--line);
-      border-radius: var(--radius);
-      background: rgba(17,24,39,.85);
-      backdrop-filter: blur(10px);
-      padding: 40px 30px;
+
+    #titleScreen .content {
+      position: relative;
+      z-index: 2;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      max-width: min(720px, 88vw);
+      padding: 40px 20px;
       text-align: center;
-      box-shadow: var(--shadow);
     }
-    #titleScreen .logo {
-      font-size: 56px;
-      margin-bottom: 20px;
-      display: block;
+
+    #titleScreen .title-stack {
+      margin-bottom: 24px;
     }
-    #titleScreen h1 {
-      margin: 0 0 10px 0;
-      font-size: 32px;
+
+    #titleScreen .title-word {
+      font-size: clamp(52px, 8vw, 110px);
+      font-weight: 900;
+      line-height: 1;
+      letter-spacing: -1px;
+      margin: 0;
+      background: linear-gradient(135deg, #60a5fa 0%, #93c5fd 50%, #60a5fa 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      text-shadow: 0 0 30px rgba(96, 165, 250, 0.3);
+    }
+
+    #titleScreen .subtitle {
+      font-size: clamp(16px, 2.2vw, 24px);
+      color: rgba(229, 231, 235, 0.7);
+      margin: 32px 0 60px 0;
+      font-weight: 400;
+      letter-spacing: 0.3px;
+      line-height: 1.6;
+    }
+
+    #titleScreen .cta-button {
+      width: min(560px, 88vw);
+      height: 70px;
+      border: none;
+      border-radius: 22px;
+      font-size: clamp(18px, 2.5vw, 24px);
+      font-weight: 700;
       letter-spacing: 0.5px;
+      cursor: pointer;
+      background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 50%, #1d4ed8 100%);
+      color: white;
+      box-shadow: 0 0 40px rgba(96, 165, 250, 0.5),
+                  0 20px 40px rgba(96, 165, 250, 0.3),
+                  inset 0 1px 0 rgba(255, 255, 255, 0.2);
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
     }
-    #titleScreen .tagline {
-      color: var(--muted);
-      font-size: 16px;
-      margin: 0 0 30px 0;
-      line-height: 1.5;
+
+    #titleScreen .cta-button::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+      transition: left 0.5s ease;
     }
-    #titleScreen .buttons {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 10px;
-      margin-bottom: 10px;
+
+    #titleScreen .cta-button:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 0 60px rgba(96, 165, 250, 0.7),
+                  0 30px 50px rgba(96, 165, 250, 0.4),
+                  inset 0 1px 0 rgba(255, 255, 255, 0.3);
     }
-    #titleScreen .buttons button {
-      padding: 12px 16px;
-      font-size: 13px;
-      font-weight: 600;
+
+    #titleScreen .cta-button:hover::before {
+      left: 100%;
     }
-    #titleScreen .options {
+
+    #titleScreen .cta-button:active {
+      transform: translateY(-1px);
+    }
+
+    #titleScreen .skip-section {
+      margin-top: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #titleScreen .skip-label {
       display: flex;
       align-items: center;
       gap: 8px;
-      margin-top: 20px;
-    }
-    #titleScreen .options label {
-      display: flex;
-      align-items: center;
-      gap: 6px;
       cursor: pointer;
-      font-size: 12px;
-      color: var(--muted);
+      font-size: 13px;
+      color: rgba(229, 231, 235, 0.5);
+      transition: color 0.2s ease;
     }
-    #titleScreen .options input[type="checkbox"] {
+
+    #titleScreen .skip-label:hover {
+      color: rgba(229, 231, 235, 0.7);
+    }
+
+    #titleScreen .skip-label input[type="checkbox"] {
       cursor: pointer;
-      width: 14px;
-      height: 14px;
+      width: 16px;
+      height: 16px;
+      accent-color: #60a5fa;
     }
 
     /* Front Office Menu */
@@ -563,15 +637,16 @@
 <body>
   <!-- Title Screen: Enter Front Office -->
   <div id="titleScreen">
-    <div class="card">
-      <span class="logo">🏀</span>
-      <h1>Hoops Dynasty GM</h1>
-      <p class="tagline">Run the front office. Build a dynasty.</p>
-      <div class="buttons">
-        <button id="titleEnter" class="primary">Enter Front Office</button>
+    <div class="content">
+      <div class="title-stack">
+        <h1 class="title-word">Hoops</h1>
+        <h1 class="title-word">Dynasty</h1>
+        <h1 class="title-word">GM</h1>
       </div>
-      <div class="options">
-        <label>
+      <p class="subtitle">Run the front office. Build a dynasty.</p>
+      <button id="titleEnter" class="cta-button">Enter Front Office</button>
+      <div class="skip-section">
+        <label class="skip-label">
           <input type="checkbox" id="titleSkip">
           <span>Skip next time</span>
         </label>
