@@ -545,6 +545,40 @@
       color: var(--muted);
       line-height: 1.5;
     }
+    
+    #frontOfficeMenu .saves-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 20px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    #frontOfficeMenu .saves-list .save-preview {
+      margin: 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+    #frontOfficeMenu .saves-list .save-preview.latest {
+      border-color: #60a5fa;
+      background: rgba(96, 165, 250, 0.1);
+    }
+    #frontOfficeMenu .saves-list .save-preview h4 {
+      margin: 0;
+      flex: 1;
+    }
+    #frontOfficeMenu .saves-list .save-preview p {
+      font-size: 12px;
+      color: var(--muted);
+      margin: 0;
+    }
+    #frontOfficeMenu .saves-list .continue-btn {
+      padding: 8px 14px;
+      font-size: 11px;
+      white-space: nowrap;
+    }
 
     /* Create League Modal */
     /* Full-Screen Create League Modal */
@@ -787,6 +821,58 @@
       letter-spacing: 1px;
     }
 
+    /* Managed Team Selection */
+    #createLeagueModal .managed-team-section {
+      margin-top: 32px;
+    }
+
+    #createLeagueModal .managed-team-section h4 {
+      margin: 0 0 16px 0;
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    #createLeagueModal .managed-team-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+      gap: 8px;
+    }
+
+    #createLeagueModal .managed-team-card {
+      padding: 12px 8px;
+      border-radius: 8px;
+      border: 2px solid rgba(96, 165, 250, 0.2);
+      background: rgba(17, 24, 39, 0.6);
+      cursor: pointer;
+      transition: all 0.2s ease;
+      text-align: center;
+      font-size: 11px;
+    }
+
+    #createLeagueModal .managed-team-card:hover {
+      border-color: rgba(96, 165, 250, 0.5);
+      background: rgba(30, 58, 97, 0.4);
+    }
+
+    #createLeagueModal .managed-team-card.selected {
+      border-color: #34d399;
+      background: rgba(52, 211, 153, 0.15);
+      box-shadow: 0 0 12px rgba(52, 211, 153, 0.3);
+    }
+
+    #createLeagueModal .managed-team-label {
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 4px;
+    }
+
+    #createLeagueModal .managed-team-abbrev {
+      font-weight: 700;
+      color: #34d399;
+      font-size: 10px;
+    }
+
     /* Hide app chrome during startup menu flow */
     .app.in-startup-menu .sidebar,
     .app.in-startup-menu .topbar {
@@ -870,6 +956,14 @@
             <button id="selectNoTeams" type="button">Select None</button>
           </div>
           <div class="team-grid" id="teamGrid"></div>
+        </div>
+
+        <div class="managed-team-section">
+          <h4>Select Team to Manage 👨‍💼</h4>
+          <div class="managed-team-grid" id="managedTeamGrid"></div>
+          <div id="managedTeamError" style="display: none; color: #f87171; font-size: 12px; margin-top: 12px;">
+            ❌ You must select exactly 1 team to manage
+          </div>
         </div>
 
         <div id="teamValidationError" style="display: none; color: #f87171; font-size: 12px; margin-top: 12px;">
@@ -2277,6 +2371,9 @@
           elem.classList.add("hidden");
           setTimeout(() => { elem.style.display = "none"; }, 300);
         }
+        // Reset state for next time
+        selectedTeamIndices = new Set(Array.from({length: 30}, (_, i) => i));
+        selectedManagedTeamId = null;
       }
 
       function hideAllMenus() {
@@ -2296,28 +2393,46 @@
 
       function updateFrontOfficePreview() {
         const preview = document.getElementById("foSavePreview");
-        const lastSaveId = state.saves && state.saves.length > 0 ? state.saves[0].id : null;
         
-        if (lastSaveId && state.league) {
-          const meta = state.league.meta || {};
-          const league = state.league;
-          const teamCount = (league.teams || []).length;
-          const playerCount = Object.values(league.players || {}).length;
-          
-          preview.innerHTML = `
-            <div class="save-preview">
-              <h4>${meta.name || "Current League"}</h4>
-              <p>Season ${meta.season || 2026}, Day ${meta.day || 1}</p>
-              <p>${teamCount} teams · ${playerCount} players</p>
-            </div>
-          `;
-          document.getElementById("foContinue").disabled = false;
-          document.getElementById("foContinue").textContent = "Continue";
-        } else {
+        if (!state.saves || state.saves.length === 0) {
           preview.innerHTML = "";
           document.getElementById("foContinue").disabled = true;
           document.getElementById("foContinue").textContent = "No League Found";
+          return;
         }
+        
+        // Show list of available saves
+        let html = '<div class="saves-list">';
+        state.saves.forEach((save, idx) => {
+          const isLatest = idx === 0;
+          html += `
+            <div class="save-preview ${isLatest ? 'latest' : ''}">
+              <h4>${save.name || "Untitled League"}</h4>
+              <p>Last opened: ${new Date(save.lastOpenedAt).toLocaleDateString()}</p>
+              <button class="mini-btn continue-btn" data-save-id="${save.id}">Continue</button>
+            </div>
+          `;
+        });
+        html += '</div>';
+        
+        preview.innerHTML = html;
+        
+        // Attach continue button handlers for each save
+        preview.querySelectorAll('.continue-btn').forEach(btn => {
+          btn.addEventListener('click', async (e) => {
+            const saveId = e.target.dataset.saveId;
+            const save = state.saves.find(s => s.id === saveId);
+            if (save) {
+              await loadSave(saveId);
+              hideAllMenus();
+              setRoute("home");
+              showBanner("success", `✓ Loaded "${save.name}"`);
+            }
+          });
+        });
+        
+        document.getElementById("foContinue").disabled = false;
+        document.getElementById("foContinue").textContent = "Continue Latest";
       }
 
       // Title Screen: Enter Front Office
@@ -2340,12 +2455,15 @@
       const foContinue = document.getElementById("foContinue");
       if (foContinue) {
         foContinue.addEventListener("click", async () => {
-          if (!state.league) {
-            showBanner("error", "❌ No league loaded");
-            return;
+          // Load the latest save
+          if (state.saves && state.saves.length > 0) {
+            await loadSave(state.saves[0].id);
+            hideAllMenus();
+            setRoute("home");
+            showBanner("success", `✓ Loaded "${state.saves[0].name}"`);
+          } else {
+            showBanner("error", "❌ No league found");
           }
-          hideAllMenus();
-          setRoute("home");
         });
       }
 
@@ -2418,6 +2536,7 @@
 
       // === CREATE LEAGUE MODAL STATE ===
       let selectedTeamIndices = new Set(Array.from({length: 30}, (_, i) => i)); // All selected by default
+      let selectedManagedTeamId = null; // Team to manage (abbrev)
 
       function renderTeamGrid() {
         const grid = document.getElementById("teamGrid");
@@ -2454,6 +2573,32 @@
         }
       }
 
+      function renderManagedTeamGrid() {
+        const grid = document.getElementById("managedTeamGrid");
+        if (!grid) return;
+
+        grid.innerHTML = "";
+        const selectedTeams = Array.from(selectedTeamIndices).map(idx => FICTIONAL_TEAMS[idx]);
+        
+        selectedTeams.forEach(team => {
+          const card = document.createElement("div");
+          card.className = "managed-team-card";
+          if (selectedManagedTeamId === team.abbrev) card.classList.add("selected");
+          
+          card.innerHTML = `
+            <div class="managed-team-label">${team.name}</div>
+            <div class="managed-team-abbrev">${team.abbrev}</div>
+          `;
+          
+          card.addEventListener("click", () => {
+            selectedManagedTeamId = selectedManagedTeamId === team.abbrev ? null : team.abbrev;
+            renderManagedTeamGrid(); // Re-render to update selection state
+          });
+          
+          grid.appendChild(card);
+        });
+      }
+
       function showCreateLeagueModal() {
         const elem = document.getElementById("createLeagueModal");
         if (elem) {
@@ -2462,6 +2607,7 @@
           document.getElementById("createLeagueName").focus();
           renderTeamGrid();
           updateTeamCounter();
+          renderManagedTeamGrid();
         }
       }
 
@@ -2474,6 +2620,7 @@
           selectedTeamIndices = new Set(Array.from({length: 30}, (_, i) => i));
           updateTeamCounter();
           renderTeamGrid();
+          renderManagedTeamGrid();
         });
       }
 
@@ -2482,6 +2629,7 @@
           selectedTeamIndices = new Set();
           updateTeamCounter();
           renderTeamGrid();
+          renderManagedTeamGrid();
         });
       }
 
@@ -2510,7 +2658,16 @@
             return;
           }
           
+          // Validate managed team selection
+          const managedTeamError = document.getElementById("managedTeamError");
+          if (!selectedManagedTeamId) {
+            if (managedTeamError) managedTeamError.style.display = "block";
+            showBanner("error", "❌ You must select exactly 1 team to manage");
+            return;
+          }
+          
           if (errorMsg) errorMsg.style.display = "none";
+          if (managedTeamError) managedTeamError.style.display = "none";
           
           // Create league with selected teams
           const selectedTeams = Array.from(selectedTeamIndices)
@@ -2533,6 +2690,9 @@
           // Create save
           const newId = await createSave(name);
           if (newId) {
+            // Find the managed team object
+            const managedTeam = selectedTeams.find(t => t.abbrev === selectedManagedTeamId);
+            
             // Build league with fictional teams and generated players
             state.league = {
               meta: {
@@ -2540,10 +2700,11 @@
                 season: year,
                 day: 1,
                 phase: "REGULAR_SEASON",
+                managedTeamId: managedTeam ? managedTeam.id : null,
               },
               teams: selectedTeams,
               players: players,
-              log: [`League "${name}" created in ${year}.`]
+              log: [`League "${name}" created in ${year}.`, `Now managing ${managedTeam.name} (${managedTeam.abbrev})`]
             };
 
             state.currentSaveId = newId;
