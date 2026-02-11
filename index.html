@@ -365,21 +365,15 @@
       line-height: 1.5;
     }
     #titleScreen .buttons {
-      display: flex;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
       gap: 10px;
-      flex-direction: column;
-      margin-bottom: 20px;
+      margin-bottom: 10px;
     }
     #titleScreen .buttons button {
-      padding: 12px 24px;
-      font-size: 14px;
+      padding: 12px 16px;
+      font-size: 13px;
       font-weight: 600;
-    }
-    #titleScreen .buttons button.primary {
-      width: 100%;
-    }
-    #titleScreen .buttons button.secondary {
-      width: 100%;
     }
     #titleScreen .options {
       display: flex;
@@ -414,16 +408,22 @@
   </style>
 </head>
 <body>
-  <!-- Title Screen Splash -->
+  <!-- Title Screen Splash / Main Menu -->
   <div id="titleScreen">
     <div class="card">
       <span class="logo">🏀</span>
       <h1>Hoops Sim</h1>
       <p class="tagline">Front office dreams, spreadsheet reality.</p>
       <div class="buttons">
-        <button id="titleStart" class="primary">Start</button>
+        <button id="titleContinue" class="primary">Continue</button>
         <button id="titleNewLeague" class="danger">New League</button>
+        <button id="titleLoadSave">Load League</button>
+        <button id="titleExport">Export</button>
       </div>
+      <div class="buttons" style="margin-top: 10px;">
+        <button id="titleImport" style="width: 100%;">Import</button>
+      </div>
+      <input type="file" id="importFileTitle" accept=".json" style="display:none;">
       <div class="options">
         <label>
           <input type="checkbox" id="titleSkip">
@@ -1681,31 +1681,38 @@
 
       await refillSavesList();
 
+      // Helper function to save skip preference
+      function saveSkipPref() {
+        const titleSkipCheckbox = document.getElementById("titleSkip");
+        if (titleSkipCheckbox && titleSkipCheckbox.checked) {
+          localStorage.setItem("hoops_skip_title", "1");
+        } else {
+          localStorage.removeItem("hoops_skip_title");
+        }
+      }
+
       // Set up title screen buttons
-      const titleStart = document.getElementById("titleStart");
+      const titleContinue = document.getElementById("titleContinue");
       const titleNewLeague = document.getElementById("titleNewLeague");
+      const titleLoadSave = document.getElementById("titleLoadSave");
+      const titleExport = document.getElementById("titleExport");
+      const titleImport = document.getElementById("titleImport");
       const titleSkipCheckbox = document.getElementById("titleSkip");
 
-      if (titleStart) {
-        titleStart.addEventListener("click", () => {
-          // Save skip preference
-          if (titleSkipCheckbox && titleSkipCheckbox.checked) {
-            localStorage.setItem("hoops_skip_title", "1");
-          }
+      // Continue: hide overlay and go to home
+      if (titleContinue) {
+        titleContinue.addEventListener("click", () => {
+          saveSkipPref();
           hideTitleScreen();
-          // Route to home
           const route = (location.hash || "#home").replace("#","").trim();
           const known = ["home","dashboard","league","teams","players"];
           setRoute(known.includes(route) ? route : "home");
         });
       }
 
+      // New League: create new save, reset league, hide overlay
       if (titleNewLeague) {
         titleNewLeague.addEventListener("click", async () => {
-          if (titleSkipCheckbox && titleSkipCheckbox.checked) {
-            localStorage.setItem("hoops_skip_title", "1");
-          }
-          // Create new save
           const name = await promptFor("Save name:", "New League");
           if (name) {
             const newId = await createSave(name);
@@ -1715,10 +1722,78 @@
               state.currentSaveId = newId;
               setSaveStatus("Loaded");
               await refillSavesList();
+              saveSkipPref();
               hideTitleScreen();
               setRoute("home");
             }
           }
+        });
+      }
+
+      // Load League: route to home (sidebar has saves list)
+      if (titleLoadSave) {
+        titleLoadSave.addEventListener("click", () => {
+          saveSkipPref();
+          hideTitleScreen();
+          setRoute("home");
+          // User can click on a save in the sidebar
+        });
+      }
+
+      // Export: download current league
+      if (titleExport) {
+        titleExport.addEventListener("click", () => {
+          if (!state.league) {
+            showBanner("error", "❌ No league to export");
+            return;
+          }
+          exportCurrentLeague();
+        });
+      }
+
+      // Import: file picker, validate JSON, create new save or replace current
+      if (titleImport) {
+        titleImport.addEventListener("click", async () => {
+          const importFileInput = document.getElementById("importFileTitle");
+          importFileInput.onchange = async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = async (ev) => {
+              try {
+                const data = JSON.parse(ev.target.result);
+                let league = data.league || data;
+                const fromV = data.schemaVersion || 0;
+                league = migrateLeague(league, fromV);
+
+                const saveName = await promptFor("Save name:", data.name || "Imported League");
+                if (!saveName) return;
+
+                const newId = await createSave(saveName);
+                if (newId) {
+                  if (db.leagues.update) {
+                    await db.leagues.update(newId, { blob: league, schemaVersion: CURRENT_SCHEMA_VERSION });
+                  } else if (dbError) {
+                    inMemoryLeagues[newId] = { id: newId, blob: league, schemaVersion: CURRENT_SCHEMA_VERSION };
+                  }
+                  state.league = league;
+                  state.currentSaveId = newId;
+                  setSaveStatus("Loaded");
+                  await refillSavesList();
+                  showBanner("success", "✓ League imported");
+                  saveSkipPref();
+                  hideTitleScreen();
+                  setRoute("home");
+                }
+              } catch (err) {
+                console.error("Import error:", err);
+                showBanner("error", "❌ Invalid file: " + err.message);
+              }
+              importFileInput.value = "";
+            };
+            reader.readAsText(file);
+          };
+          importFileInput.click();
         });
       }
 
