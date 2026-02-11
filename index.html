@@ -616,6 +616,107 @@
       font-weight: 600;
     }
 
+    /* Create League: Team Selection Grid */
+    #createLeagueModal .team-selection {
+      margin-top: 24px;
+    }
+
+    #createLeagueModal .team-selection-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    #createLeagueModal .team-selection-header h4 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    #createLeagueModal .team-selection-header .counter {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    #createLeagueModal .quick-actions {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    #createLeagueModal .quick-actions button {
+      flex: 1;
+      padding: 6px 12px;
+      font-size: 11px;
+      font-weight: 600;
+      border: 1px solid rgba(96, 165, 250, 0.3);
+      border-radius: 8px;
+      background: rgba(96, 165, 250, 0.1);
+      color: #60a5fa;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    #createLeagueModal .quick-actions button:hover {
+      background: rgba(96, 165, 250, 0.2);
+      border-color: rgba(96, 165, 250, 0.5);
+    }
+
+    #createLeagueModal .team-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 12px;
+      max-height: 400px;
+      overflow-y: auto;
+      padding: 12px;
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 12px;
+      border: 1px solid var(--line);
+    }
+
+    #createLeagueModal .team-card {
+      padding: 12px;
+      border-radius: 10px;
+      border: 2px solid rgba(96, 165, 250, 0.2);
+      background: rgba(17, 24, 39, 0.6);
+      cursor: pointer;
+      transition: all 0.2s ease;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+    }
+
+    #createLeagueModal .team-card:hover {
+      border-color: rgba(96, 165, 250, 0.5);
+      background: rgba(30, 58, 97, 0.4);
+      transform: translateY(-2px);
+    }
+
+    #createLeagueModal .team-card.selected {
+      border-color: #60a5fa;
+      background: rgba(96, 165, 250, 0.15);
+      box-shadow: 0 0 12px rgba(96, 165, 250, 0.3), inset 0 0 8px rgba(96, 165, 250, 0.1);
+    }
+
+    #createLeagueModal .team-card .team-name {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 4px;
+      line-height: 1.3;
+    }
+
+    #createLeagueModal .team-card .team-abbrev {
+      font-size: 11px;
+      font-weight: 700;
+      color: #60a5fa;
+      letter-spacing: 1px;
+    }
+
     /* Hide app chrome during startup menu flow */
     .app.in-startup-menu .sidebar,
     .app.in-startup-menu .topbar {
@@ -676,21 +777,36 @@
   <div id="createLeagueModal" class="hidden">
     <div class="card">
       <h3>Create League</h3>
+      
       <div class="form-group">
         <label>League Name</label>
-        <input type="text" id="createLeagueName" placeholder="e.g., My Dynasty" value="New League">
+        <input type="text" id="createLeagueName" placeholder="e.g., My Dynasty" value="My League">
       </div>
+      
       <div class="form-group">
         <label>Starting Season</label>
-        <input type="number" id="createLeagueYear" min="2000" max="2050" value="2026">
+        <input type="number" id="createLeagueYear" min="1900" max="2500" value="2026">
       </div>
-      <div class="form-group">
-        <label>Teams (Note: Fixed at 4 for this version)</label>
-        <input type="number" id="createLeagueTeams" min="2" max="32" value="4" readonly>
+
+      <div class="form-group team-selection">
+        <div class="team-selection-header">
+          <h4>Select Teams (30 Required)</h4>
+          <span class="counter" id="teamCounter">Selected: 30/30</span>
+        </div>
+        <div class="quick-actions">
+          <button id="selectAllTeams" type="button">Select All</button>
+          <button id="selectNoTeams" type="button">Select None</button>
+        </div>
+        <div class="team-grid" id="teamGrid"></div>
       </div>
+
+      <div id="teamValidationError" style="display: none; color: #f87171; font-size: 12px; margin-top: 12px;">
+        ❌ All 30 teams must be selected
+      </div>
+      
       <div class="form-buttons">
-        <button id="createLeagueBtn" class="primary">Create</button>
-        <button id="createLeagueCancel">Cancel</button>
+        <button id="createLeagueBtn" class="primary">Create League</button>
+        <button id="createLeagueCancel">Back</button>
       </div>
     </div>
   </div>
@@ -800,6 +916,94 @@
     }
     function uuid() {
       return crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + "-" + randInt(1000, 9999);
+    }
+
+    // 30 Original Fictional Basketball Teams (NOT NBA-derived)
+    const FICTIONAL_TEAMS = [
+      { name: "Aster Gate Architects", abbrev: "AGA" },
+      { name: "Blaze Vein Runners", abbrev: "BVR" },
+      { name: "Cipher Peak Walkers", abbrev: "CPW" },
+      { name: "Drift Tide Sovereigns", abbrev: "DTS" },
+      { name: "Ether Reach Sentinels", abbrev: "ERS" },
+      { name: "Forge Haven Crafters", abbrev: "FHC" },
+      { name: "Gleam Canyon Seekers", abbrev: "GCS" },
+      { name: "Helix Storm Riders", abbrev: "HSR" },
+      { name: "Ivory Mist Dwellers", abbrev: "IMD" },
+      { name: "Jinx Void Keepers", abbrev: "JVK" },
+      { name: "Kaels Mons Guardians", abbrev: "KMG" },
+      { name: "Lure Bay Corsairs", abbrev: "LBC" },
+      { name: "Mystic Vale Shamans", abbrev: "MVS" },
+      { name: "Nexus Point Pillars", abbrev: "NPP" },
+      { name: "Obsidian Shrine Monks", abbrev: "OSM" },
+      { name: "Prism Tower Sages", abbrev: "PTS" },
+      { name: "Quell Shore Navigators", abbrev: "QSN" },
+      { name: "Realm Shift Artisans", abbrev: "RSA" },
+      { name: "Surge Echo Champions", abbrev: "SEC" },
+      { name: "Tome Peak Scholars", abbrev: "TPS" },
+      { name: "Umbra Vale Pathfinders", abbrev: "UVP" },
+      { name: "Venom Crest Vanguards", abbrev: "VCV" },
+      { name: "Wraith Haven Wardens", abbrev: "WHW" },
+      { name: "Xyst Hollow Nomads", abbrev: "XHN" },
+      { name: "Yield Star Initiates", abbrev: "YSI" },
+      { name: "Zenith Rift Keepers", abbrev: "ZRK" },
+      { name: "Abyss Tide Dreamers", abbrev: "ATD" },
+      { name: "Bastion Shade Crafters", abbrev: "BSC" },
+      { name: "Crown Vale Seekers", abbrev: "CVS" },
+      { name: "Void Spire Oracles", abbrev: "VSO" },
+    ];
+
+    function generatePlayersForTeams(teams) {
+      const firstNames = [
+        "Jalen", "Malik", "Theo", "Darius", "Andre", "Zion", "Marcus", "Kyrie",
+        "Noah", "Devin", "Evan", "Jordan", "Brandon", "Kyle", "Chase", "Harrison",
+        "Trevor", "Blake", "Griffin", "Tyson", "Donovan", "Jayson", "Luka", "Trae",
+        "Jamal", "Nikola", "Giannis", "Kevin", "Stephen", "LeBron", "Michael",
+        "Isaiah", "Damian", "Russell", "Anthony", "CJ", "Khris", "Tobias", "Ben",
+        "Shai", "Wilt", "Dwyane", "Chris", "Tim", "Karl", "John", "David",
+        "JJ", "Danny", "Kawhis", "Kawhi", "Jaundice", "Jake", "Jrue", "D'Angelo"
+      ];
+      
+      const lastNames = [
+        "Cross", "Hughes", "Navarro", "Cole", "Vaughn", "Parker", "Reed", "Santos",
+        "Okafor", "Price", "Knight", "Kim", "Smith", "Johnson", "Williams", "Davis",
+        "Miller", "Wilson", "Moore", "Taylor", "Anderson", "Thomas", "Jackson", "White",
+        "Harris", "Martin", "Thompson", "Garcia", "Martinez", "Robinson", "Clark",
+        "Rodriguez", "Lewis", "Lee", "Walker", "Hall", "Young", "Green", "Adams",
+        "Nelson", "Hernandez", "King", "Wright", "Lopez", "Hill", "Scott", "Perez"
+      ];
+      
+      const positions = ["PG", "SG", "SF", "PF", "C"];
+      const players = [];
+
+      let playerIdx = 0;
+      teams.forEach(team => {
+        for (let i = 0; i < 10; i++) {
+          const firstName = firstNames[playerIdx % firstNames.length];
+          const lastName = lastNames[(playerIdx + Math.floor(Math.random() * lastNames.length)) % lastNames.length];
+          const ovr = randInt(50, 85);
+          const pot = clamp(ovr + randInt(-5, 12), 45, 95);
+          const age = randInt(19, 34);
+          const salary = randInt(2, 30) * 1_000_000;
+
+          players.push({
+            id: uuid(),
+            firstName,
+            lastName,
+            pos: positions[i % positions.length],
+            age,
+            teamId: team.id,
+            ovr,
+            pot,
+            salary,
+            mood: randInt(40, 90),
+            stamina: randInt(70, 100),
+            stats: { gp: 0, pts: 0, reb: 0, ast: 0 }
+          });
+          playerIdx++;
+        }
+      });
+
+      return players;
     }
 
     function defaultLeague() {
@@ -1994,15 +2198,6 @@
         }
       }
 
-      function showCreateLeagueModal() {
-        const elem = document.getElementById("createLeagueModal");
-        if (elem) {
-          elem.classList.remove("hidden");
-          elem.style.display = "flex";
-          document.getElementById("createLeagueName").focus();
-        }
-      }
-
       function hideCreateLeagueModal() {
         const elem = document.getElementById("createLeagueModal");
         if (elem) {
@@ -2148,30 +2343,150 @@
         });
       }
 
+      // === CREATE LEAGUE MODAL STATE ===
+      let selectedTeamIndices = new Set(Array.from({length: 30}, (_, i) => i)); // All selected by default
+
+      function renderTeamGrid() {
+        const grid = document.getElementById("teamGrid");
+        if (!grid) return;
+        
+        grid.innerHTML = "";
+        FICTIONAL_TEAMS.forEach((team, idx) => {
+          const card = document.createElement("div");
+          card.className = "team-card";
+          if (selectedTeamIndices.has(idx)) card.classList.add("selected");
+          
+          card.innerHTML = `
+            <div class="team-name">${team.name}</div>
+            <div class="team-abbrev">${team.abbrev}</div>
+          `;
+          
+          card.addEventListener("click", () => {
+            selectedTeamIndices.has(idx) 
+              ? selectedTeamIndices.delete(idx)
+              : selectedTeamIndices.add(idx);
+            updateTeamCounter();
+            renderTeamGrid();
+          });
+          
+          grid.appendChild(card);
+        });
+      }
+
+      function updateTeamCounter() {
+        const counter = document.getElementById("teamCounter");
+        if (counter) {
+          const count = selectedTeamIndices.size;
+          counter.textContent = `Selected: ${count}/30`;
+        }
+      }
+
+      function showCreateLeagueModal() {
+        const elem = document.getElementById("createLeagueModal");
+        if (elem) {
+          elem.classList.remove("hidden");
+          elem.style.display = "flex";
+          document.getElementById("createLeagueName").focus();
+          renderTeamGrid();
+          updateTeamCounter();
+        }
+      }
+
+      // Create League Modal: Team Selection
+      const selectAllBtn = document.getElementById("selectAllTeams");
+      const selectNoneBtn = document.getElementById("selectNoTeams");
+      
+      if (selectAllBtn) {
+        selectAllBtn.addEventListener("click", () => {
+          selectedTeamIndices = new Set(Array.from({length: 30}, (_, i) => i));
+          updateTeamCounter();
+          renderTeamGrid();
+        });
+      }
+
+      if (selectNoneBtn) {
+        selectNoneBtn.addEventListener("click", () => {
+          selectedTeamIndices = new Set();
+          updateTeamCounter();
+          renderTeamGrid();
+        });
+      }
+
       // Create League Modal: Create button
       const createLeagueBtn = document.getElementById("createLeagueBtn");
       if (createLeagueBtn) {
         createLeagueBtn.addEventListener("click", async () => {
           const name = document.getElementById("createLeagueName").value.trim();
           const year = parseInt(document.getElementById("createLeagueYear").value) || 2026;
+          const errorMsg = document.getElementById("teamValidationError");
           
+          // Validation
           if (!name) {
             showBanner("error", "❌ Please enter a league name");
             return;
           }
           
+          if (isNaN(year) || year < 1900 || year > 2500) {
+            showBanner("error", "❌ Season must be between 1900 and 2500");
+            return;
+          }
+          
+          if (selectedTeamIndices.size !== 30) {
+            if (errorMsg) errorMsg.style.display = "block";
+            showBanner("error", `❌ All 30 teams must be selected (currently ${selectedTeamIndices.size})`);
+            return;
+          }
+          
+          if (errorMsg) errorMsg.style.display = "none";
+          
+          // Create league with selected teams
+          const selectedTeams = Array.from(selectedTeamIndices)
+            .sort((a, b) => a - b)
+            .map(idx => {
+              const team = FICTIONAL_TEAMS[idx];
+              return {
+                id: uuid(),
+                name: team.name,
+                abbrev: team.abbrev,
+                wins: 0,
+                losses: 0,
+                cash: 50_000_000
+              };
+            });
+
+          // Generate players for teams
+          const players = generatePlayersForTeams(selectedTeams);
+
+          // Create save
           const newId = await createSave(name);
           if (newId) {
-            state.league = defaultLeague();
-            state.league.meta.name = name;
-            state.league.meta.season = year;
-            state.league.meta.day = 1;
+            // Build league with fictional teams and generated players
+            state.league = {
+              meta: {
+                name: name,
+                season: year,
+                day: 1,
+                phase: "REGULAR_SEASON",
+              },
+              teams: selectedTeams,
+              players: players,
+              log: [`League "${name}" created in ${year}.`]
+            };
+
             state.currentSaveId = newId;
             setSaveStatus("Created");
+
+            // Save to Dexie
+            if (db.leagues && db.leagues.update) {
+              await db.leagues.update(newId, { blob: state.league, schemaVersion: CURRENT_SCHEMA_VERSION });
+            } else if (dbError) {
+              inMemoryLeagues[newId] = { id: newId, blob: state.league, schemaVersion: CURRENT_SCHEMA_VERSION };
+            }
+
             await refillSavesList();
             hideAllMenus();
             setRoute("home");
-            showBanner("success", `✓ League "${name}" created!`);
+            showBanner("success", `✓ League "${name}" created with 30 teams!`);
           }
         });
       }
