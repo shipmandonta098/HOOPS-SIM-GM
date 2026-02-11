@@ -395,6 +395,159 @@
       height: 14px;
     }
 
+    /* Front Office Menu */
+    #frontOfficeMenu {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(180deg, #070a10, #0b0f17 35%, #070a10);
+      backdrop-filter: blur(2px);
+      z-index: 9999;
+      opacity: 1;
+      transition: opacity 0.3s ease-out;
+    }
+    #frontOfficeMenu.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+    #frontOfficeMenu .card {
+      width: 90%;
+      max-width: 480px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(17,24,39,.85);
+      backdrop-filter: blur(10px);
+      padding: 40px 30px;
+      box-shadow: var(--shadow);
+    }
+    #frontOfficeMenu h2 {
+      margin: 0 0 8px 0;
+      font-size: 28px;
+      letter-spacing: 0.5px;
+    }
+    #frontOfficeMenu .subtext {
+      color: var(--muted);
+      font-size: 14px;
+      margin: 0 0 30px 0;
+    }
+    #frontOfficeMenu .main-buttons {
+      display: flex;
+      gap: 10px;
+      flex-direction: column;
+      margin-bottom: 20px;
+    }
+    #frontOfficeMenu .main-buttons button {
+      padding: 14px 24px;
+      font-size: 15px;
+      font-weight: 600;
+      width: 100%;
+    }
+    #frontOfficeMenu .secondary-buttons {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+    #frontOfficeMenu .secondary-buttons button {
+      padding: 10px 12px;
+      font-size: 12px;
+    }
+    #frontOfficeMenu .save-preview {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 14px;
+      background: rgba(15,23,42,.6);
+      margin-top: 20px;
+    }
+    #frontOfficeMenu .save-preview h4 {
+      margin: 0 0 8px 0;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    #frontOfficeMenu .save-preview .info {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    /* Create League Modal */
+    #createLeagueModal {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0,0,0,.6);
+      backdrop-filter: blur(3px);
+      z-index: 10000;
+      opacity: 1;
+      transition: opacity 0.3s ease-out;
+    }
+    #createLeagueModal.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+    #createLeagueModal .card {
+      width: 90%;
+      max-width: 400px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(17,24,39,.95);
+      backdrop-filter: blur(10px);
+      padding: 30px;
+      box-shadow: var(--shadow);
+    }
+    #createLeagueModal h3 {
+      margin: 0 0 20px 0;
+      font-size: 20px;
+    }
+    #createLeagueModal .form-group {
+      margin-bottom: 16px;
+    }
+    #createLeagueModal label {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 600;
+    }
+    #createLeagueModal input {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(15,23,42,.8);
+      color: var(--text);
+      font-size: 14px;
+      font-family: inherit;
+    }
+    #createLeagueModal input:focus {
+      outline: none;
+      border-color: rgba(96,165,250,.5);
+      background: rgba(15,23,42,1);
+    }
+    #createLeagueModal .form-buttons {
+      display: flex;
+      gap: 10px;
+      margin-top: 24px;
+    }
+    #createLeagueModal .form-buttons button {
+      flex: 1;
+      padding: 10px 16px;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    /* Hide app chrome during startup menu flow */
+    .app.in-startup-menu .sidebar,
+    .app.in-startup-menu .topbar {
+      display: none !important;
+    }
+
     /* Mobile sidebar toggle */
     .mobileToggle { display: none; }
     @media (max-width: 820px) {
@@ -408,27 +561,61 @@
   </style>
 </head>
 <body>
-  <!-- Title Screen Splash / Main Menu -->
+  <!-- Title Screen: Enter Front Office -->
   <div id="titleScreen">
     <div class="card">
       <span class="logo">🏀</span>
-      <h1>Hoops Sim</h1>
-      <p class="tagline">Front office dreams, spreadsheet reality.</p>
+      <h1>Hoops Dynasty GM</h1>
+      <p class="tagline">Run the front office. Build a dynasty.</p>
       <div class="buttons">
-        <button id="titleContinue" class="primary">Continue</button>
-        <button id="titleNewLeague" class="danger">New League</button>
-        <button id="titleLoadSave">Load League</button>
-        <button id="titleExport">Export</button>
+        <button id="titleEnter" class="primary">Enter Front Office</button>
       </div>
-      <div class="buttons" style="margin-top: 10px;">
-        <button id="titleImport" style="width: 100%;">Import</button>
-      </div>
-      <input type="file" id="importFileTitle" accept=".json" style="display:none;">
       <div class="options">
         <label>
           <input type="checkbox" id="titleSkip">
           <span>Skip next time</span>
         </label>
+      </div>
+    </div>
+  </div>
+
+  <!-- Front Office Menu -->
+  <div id="frontOfficeMenu" class="hidden">
+    <div class="card">
+      <h2>Front Office</h2>
+      <p class="subtext">Choose a league to manage.</p>
+      <div class="main-buttons">
+        <button id="foCreateLeague" class="primary">Create League</button>
+        <button id="foContinue">Continue</button>
+      </div>
+      <div class="secondary-buttons">
+        <button id="foLoadLeague">Load League</button>
+        <button id="foImport">Import</button>
+        <button id="foExport">Export</button>
+      </div>
+      <div id="foSavePreview"></div>
+    </div>
+  </div>
+
+  <!-- Create League Modal -->
+  <div id="createLeagueModal" class="hidden">
+    <div class="card">
+      <h3>Create League</h3>
+      <div class="form-group">
+        <label>League Name</label>
+        <input type="text" id="createLeagueName" placeholder="e.g., My Dynasty" value="New League">
+      </div>
+      <div class="form-group">
+        <label>Starting Season</label>
+        <input type="number" id="createLeagueYear" min="2000" max="2050" value="2026">
+      </div>
+      <div class="form-group">
+        <label>Teams (Note: Fixed at 4 for this version)</label>
+        <input type="number" id="createLeagueTeams" min="2" max="32" value="4" readonly>
+      </div>
+      <div class="form-buttons">
+        <button id="createLeagueBtn" class="primary">Create</button>
+        <button id="createLeagueCancel">Cancel</button>
       </div>
     </div>
   </div>
@@ -1691,71 +1878,151 @@
         }
       }
 
-      // Set up title screen buttons
-      const titleContinue = document.getElementById("titleContinue");
-      const titleNewLeague = document.getElementById("titleNewLeague");
-      const titleLoadSave = document.getElementById("titleLoadSave");
-      const titleExport = document.getElementById("titleExport");
-      const titleImport = document.getElementById("titleImport");
+      // Handle Title Screen
+      const titleEnter = document.getElementById("titleEnter");
       const titleSkipCheckbox = document.getElementById("titleSkip");
+      const app = document.querySelector(".app");
 
-      // Continue: hide overlay and go to home
-      if (titleContinue) {
-        titleContinue.addEventListener("click", () => {
-          saveSkipPref();
-          hideTitleScreen();
-          const route = (location.hash || "#home").replace("#","").trim();
-          const known = ["home","dashboard","league","teams","players"];
-          setRoute(known.includes(route) ? route : "home");
-        });
+      function showTitleScreen() {
+        const elem = document.getElementById("titleScreen");
+        if (elem) {
+          elem.classList.remove("hidden");
+          elem.style.display = "flex";
+        }
+        if (app) app.classList.add("in-startup-menu");
       }
 
-      // New League: create new save, reset league, hide overlay
-      if (titleNewLeague) {
-        titleNewLeague.addEventListener("click", async () => {
-          const name = await promptFor("Save name:", "New League");
-          if (name) {
-            const newId = await createSave(name);
-            if (newId) {
-              state.league = defaultLeague();
-              state.league.meta.name = name;
-              state.currentSaveId = newId;
-              setSaveStatus("Loaded");
-              await refillSavesList();
-              saveSkipPref();
-              hideTitleScreen();
-              setRoute("home");
-            }
+      function hideTitleScreenAndShowMenu() {
+        const titleElem = document.getElementById("titleScreen");
+        if (titleElem) {
+          titleElem.classList.add("hidden");
+          setTimeout(() => { titleElem.style.display = "none"; }, 300);
+        }
+        showFrontOfficeMenu();
+      }
+
+      function showFrontOfficeMenu() {
+        const elem = document.getElementById("frontOfficeMenu");
+        if (elem) {
+          elem.classList.remove("hidden");
+          elem.style.display = "flex";
+          updateFrontOfficePreview();
+        }
+        if (app) app.classList.add("in-startup-menu");
+      }
+
+      function hideFrontOfficeMenu() {
+        const elem = document.getElementById("frontOfficeMenu");
+        if (elem) {
+          elem.classList.add("hidden");
+          setTimeout(() => { elem.style.display = "none"; }, 300);
+        }
+      }
+
+      function showCreateLeagueModal() {
+        const elem = document.getElementById("createLeagueModal");
+        if (elem) {
+          elem.classList.remove("hidden");
+          elem.style.display = "flex";
+          document.getElementById("createLeagueName").focus();
+        }
+      }
+
+      function hideCreateLeagueModal() {
+        const elem = document.getElementById("createLeagueModal");
+        if (elem) {
+          elem.classList.add("hidden");
+          setTimeout(() => { elem.style.display = "none"; }, 300);
+        }
+      }
+
+      function hideAllMenus() {
+        const titleElem = document.getElementById("titleScreen");
+        const foElem = document.getElementById("frontOfficeMenu");
+        const clElem = document.getElementById("createLeagueModal");
+        
+        [titleElem, foElem, clElem].forEach(elem => {
+          if (elem) {
+            elem.classList.add("hidden");
+            elem.style.display = "none";
           }
         });
+        
+        if (app) app.classList.remove("in-startup-menu");
       }
 
-      // Load League: route to home (sidebar has saves list)
-      if (titleLoadSave) {
-        titleLoadSave.addEventListener("click", () => {
+      function updateFrontOfficePreview() {
+        const preview = document.getElementById("foSavePreview");
+        const lastSaveId = state.saves && state.saves.length > 0 ? state.saves[0].id : null;
+        
+        if (lastSaveId && state.league) {
+          const meta = state.league.meta || {};
+          const league = state.league;
+          const teamCount = (league.teams || []).length;
+          const playerCount = Object.values(league.players || {}).length;
+          
+          preview.innerHTML = `
+            <div class="save-preview">
+              <h4>${meta.name || "Current League"}</h4>
+              <p>Season ${meta.season || 2026}, Day ${meta.day || 1}</p>
+              <p>${teamCount} teams · ${playerCount} players</p>
+            </div>
+          `;
+          document.getElementById("foContinue").disabled = false;
+          document.getElementById("foContinue").textContent = "Continue";
+        } else {
+          preview.innerHTML = "";
+          document.getElementById("foContinue").disabled = true;
+          document.getElementById("foContinue").textContent = "No League Found";
+        }
+      }
+
+      // Title Screen: Enter Front Office
+      if (titleEnter) {
+        titleEnter.addEventListener("click", () => {
           saveSkipPref();
-          hideTitleScreen();
-          setRoute("home");
-          // User can click on a save in the sidebar
+          hideTitleScreenAndShowMenu();
         });
       }
 
-      // Export: download current league
-      if (titleExport) {
-        titleExport.addEventListener("click", () => {
+      // Front Office: Create League
+      const foCreateLeague = document.getElementById("foCreateLeague");
+      if (foCreateLeague) {
+        foCreateLeague.addEventListener("click", () => {
+          showCreateLeagueModal();
+        });
+      }
+
+      // Front Office: Continue with current league
+      const foContinue = document.getElementById("foContinue");
+      if (foContinue) {
+        foContinue.addEventListener("click", async () => {
           if (!state.league) {
-            showBanner("error", "❌ No league to export");
+            showBanner("error", "❌ No league loaded");
             return;
           }
-          exportCurrentLeague();
+          hideAllMenus();
+          setRoute("home");
         });
       }
 
-      // Import: file picker, validate JSON, create new save or replace current
-      if (titleImport) {
-        titleImport.addEventListener("click", async () => {
-          const importFileInput = document.getElementById("importFileTitle");
-          importFileInput.onchange = async (e) => {
+      // Front Office: Load League (go to home, user can click sidebar saves)
+      const foLoadLeague = document.getElementById("foLoadLeague");
+      if (foLoadLeague) {
+        foLoadLeague.addEventListener("click", () => {
+          hideAllMenus();
+          setRoute("home");
+        });
+      }
+
+      // Front Office: Import
+      const foImport = document.getElementById("foImport");
+      if (foImport) {
+        foImport.addEventListener("click", async () => {
+          const input = document.createElement("input");
+          input.type = "file";
+          input.accept = ".json";
+          input.onchange = async (e) => {
             const file = e.target.files[0];
             if (!file) return;
             const reader = new FileReader();
@@ -1771,7 +2038,7 @@
 
                 const newId = await createSave(saveName);
                 if (newId) {
-                  if (db.leagues.update) {
+                  if (db.leagues && db.leagues.update) {
                     await db.leagues.update(newId, { blob: league, schemaVersion: CURRENT_SCHEMA_VERSION });
                   } else if (dbError) {
                     inMemoryLeagues[newId] = { id: newId, blob: league, schemaVersion: CURRENT_SCHEMA_VERSION };
@@ -1781,31 +2048,84 @@
                   setSaveStatus("Loaded");
                   await refillSavesList();
                   showBanner("success", "✓ League imported");
-                  saveSkipPref();
-                  hideTitleScreen();
-                  setRoute("home");
+                  updateFrontOfficePreview();
                 }
               } catch (err) {
                 console.error("Import error:", err);
                 showBanner("error", "❌ Invalid file: " + err.message);
               }
-              importFileInput.value = "";
             };
             reader.readAsText(file);
           };
-          importFileInput.click();
+          input.click();
         });
       }
 
-      // If user wants to skip title screen, hide it immediately
-      if (skipTitle) {
-        hideTitleScreen();
+      // Front Office: Export
+      const foExport = document.getElementById("foExport");
+      if (foExport) {
+        foExport.addEventListener("click", () => {
+          if (!state.league) {
+            showBanner("error", "❌ No league to export");
+            return;
+          }
+          exportCurrentLeague();
+        });
       }
 
-      // Initial route
-      const route = (location.hash || "#home").replace("#","").trim();
-      const known = ["home","dashboard","league","teams","players"];
-      setRoute(known.includes(route) ? route : "home");
+      // Create League Modal: Create button
+      const createLeagueBtn = document.getElementById("createLeagueBtn");
+      if (createLeagueBtn) {
+        createLeagueBtn.addEventListener("click", async () => {
+          const name = document.getElementById("createLeagueName").value.trim();
+          const year = parseInt(document.getElementById("createLeagueYear").value) || 2026;
+          
+          if (!name) {
+            showBanner("error", "❌ Please enter a league name");
+            return;
+          }
+          
+          const newId = await createSave(name);
+          if (newId) {
+            state.league = defaultLeague();
+            state.league.meta.name = name;
+            state.league.meta.season = year;
+            state.league.meta.day = 1;
+            state.currentSaveId = newId;
+            setSaveStatus("Created");
+            await refillSavesList();
+            hideAllMenus();
+            setRoute("home");
+            showBanner("success", `✓ League "${name}" created!`);
+          }
+        });
+      }
+
+      // Create League Modal: Cancel button
+      const createLeagueCancel = document.getElementById("createLeagueCancel");
+      if (createLeagueCancel) {
+        createLeagueCancel.addEventListener("click", () => {
+          hideCreateLeagueModal();
+          showFrontOfficeMenu();
+        });
+      }
+
+      // === Main App Initialization ===
+      // Determine startup flow based on skip preference and current save
+      function initializeAppFlow() {
+        if (skipTitle) {
+          // Skip directly to Front Office Menu
+          document.getElementById("titleScreen").style.display = "none";
+          showFrontOfficeMenu();
+        } else {
+          // Show Title Screen first
+          showTitleScreen();
+        }
+      }
+
+      // Start the app flow after DB initialization
+      initializeAppFlow();
+
     })();
   </script>
 </body>
