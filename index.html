@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Hoops Sim Starter</title>
+  <script src="https://cdn.jsdelivr.net/npm/dexie@4.0.4-alpha.14/dist/dexie.min.js"></script>
   <style>
     :root {
       --bg: #0b0f17;
@@ -223,6 +224,102 @@
     .click { color: var(--accent); cursor: pointer; }
     .click:hover { text-decoration: underline; }
 
+    .saves-section {
+      margin-top: 16px;
+      padding-top: 12px;
+      border-top: 1px solid var(--line);
+    }
+    .saves-section h3 {
+      margin: 0 0 10px 0;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .saves-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-height: 250px;
+      overflow-y: auto;
+    }
+    .save-item {
+      padding: 9px 10px;
+      border: 1px solid rgba(96,165,250,.25);
+      background: rgba(96,165,250,.08);
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 13px;
+      color: var(--text);
+      transition: all 0.2s;
+    }
+    .save-item:hover {
+      border-color: rgba(96,165,250,.5);
+      background: rgba(96,165,250,.15);
+    }
+    .save-item.active {
+      border-color: var(--accent);
+      background: rgba(96,165,250,.2);
+      font-weight: 600;
+    }
+    .save-item-name {
+      display: block;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 3px;
+    }
+    .save-item-info {
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .save-item-actions {
+      display: flex;
+      gap: 4px;
+      margin-top: 6px;
+    }
+    .save-item-actions button {
+      padding: 4px 8px;
+      font-size: 11px;
+      flex: 1;
+    }
+    .saves-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 10px;
+    }
+    .saves-actions button {
+      width: 100%;
+      font-size: 12px;
+    }
+
+    .banner {
+      padding: 12px;
+      border-radius: 10px;
+      margin-bottom: 12px;
+      border: 1px solid;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .banner.warning {
+      background: rgba(251,191,36,.1);
+      border-color: rgba(251,191,36,.35);
+      color: #fcd34d;
+    }
+    .banner.error {
+      background: rgba(248,113,113,.1);
+      border-color: rgba(248,113,113,.35);
+      color: #fecaca;
+    }
+    .banner.success {
+      background: rgba(52,211,153,.1);
+      border-color: rgba(52,211,153,.35);
+      color: #a7f3d0;
+    }
+
     /* Mobile sidebar toggle */
     .mobileToggle { display: none; }
     @media (max-width: 820px) {
@@ -247,10 +344,22 @@
       </div>
 
       <div class="nav" id="nav">
-        <a href="#dashboard" data-route="dashboard" class="active"><span>🏠 Dashboard</span><span>›</span></a>
+        <a href="#home" data-route="home" class="active"><span>🎮 Home</span><span>›</span></a>
+        <a href="#dashboard" data-route="dashboard"><span>🏠 Dashboard</span><span>›</span></a>
         <a href="#league" data-route="league"><span>🌍 League</span><span>›</span></a>
         <a href="#teams" data-route="teams"><span>🏟️ Teams</span><span>›</span></a>
         <a href="#players" data-route="players"><span>🧑‍🦱 Players</span><span>›</span></a>
+      </div>
+
+      <div class="saves-section">
+        <h3>💾 Saves</h3>
+        <div class="saves-list" id="savesList"></div>
+        <div class="saves-actions">
+          <button id="btnNewSave" class="primary">+ New Save</button>
+          <button id="btnExport">Export Current</button>
+          <button id="btnImport">Import Save</button>
+          <input type="file" id="importFile" accept=".json" style="display:none;">
+        </div>
       </div>
 
       <div style="margin-top:14px; padding:12px; border:1px dashed rgba(156,163,175,.25); border-radius:14px; color:var(--muted); font-size:12px; line-height:1.5;">
@@ -260,16 +369,17 @@
     </aside>
 
     <main class="main">
+      <div id="bannerContainer"></div>
       <div class="topbar">
         <div class="left">
           <button class="mobileToggle" id="toggleSidebar">☰ Menu</button>
           <div class="pill">📅 Day <b id="dayLabel">1</b> <span class="muted">/</span> <span id="seasonLabel">Season 2026</span></div>
-          <div class="pill">💾 Save: <b id="saveStatus">Loaded</b></div>
+          <div class="pill">💾 Save: <b id="saveStatus">Loading...</b></div>
         </div>
         <div class="row-actions">
           <button id="sim1" class="primary">Sim 1 Day</button>
           <button id="sim7">Sim 1 Week</button>
-          <button id="newLeague" class="danger">New League</button>
+          <button id="newLeague" class="danger">Reset Save</button>
         </div>
       </div>
 
@@ -279,10 +389,47 @@
 
   <script>
     /**********************
-     * 1) Data + Storage
+     * 0) Dexie DB Setup
      **********************/
-    const STORAGE_KEY = "hoops_sim_league_v1";
+    let db = null;
+    let dbError = false;
+    let dbErrorMsg = "";
 
+    class HoopsDB extends Dexie {
+      constructor() {
+        super("hoops_sim_db");
+        this.version(1).stores({
+          saves: "id, name, updatedAt",
+          leagues: "id"
+        });
+      }
+    }
+
+    async function initDB() {
+      try {
+        db = new HoopsDB();
+        await db.open();
+        return true;
+      } catch (err) {
+        console.warn("IndexedDB unavailable (private mode?), using in-memory storage:", err);
+        dbError = true;
+        dbErrorMsg = "📵 Storage failed: using in-memory. Reload to keep data.";
+        // Create fake in-memory db
+        db = {
+          saves: { toArray: async () => inMemorySaves, add: async (s) => { inMemorySaves.push(s); }, update: async () => {}, delete: async () => {} },
+          leagues: { where: () => ({ first: async () => null }), add: async () => {}, update: async () => {} }
+        };
+        return false;
+      }
+    }
+
+    const CURRENT_SCHEMA_VERSION = 1;
+    const inMemorySaves = [];
+    const inMemoryLeagues = {};
+
+    /**********************
+     * 1) Data + Utilities
+     **********************/
     function randInt(min, max) {
       return Math.floor(Math.random() * (max - min + 1)) + min;
     }
@@ -294,7 +441,6 @@
     }
 
     function defaultLeague() {
-      // Keep it tiny. Complexity is a tax.
       const teams = [
         { id: uuid(), name: "New York Knights", abbrev: "NYK", wins: 0, losses: 0, cash: 50_000_000 },
         { id: uuid(), name: "Chicago Comets",  abbrev: "CHI", wins: 0, losses: 0, cash: 50_000_000 },
@@ -302,7 +448,6 @@
         { id: uuid(), name: "Miami Tide",      abbrev: "MIA", wins: 0, losses: 0, cash: 50_000_000 },
       ];
 
-      // Players: rating roughly 30–90
       const names = [
         ["Jalen", "Cross"], ["Malik", "Hughes"], ["Theo", "Navarro"], ["Darius", "Cole"],
         ["Andre", "Vaughn"], ["Zion", "Parker"], ["Marcus", "Reed"], ["Kyrie", "Santos"],
@@ -327,7 +472,7 @@
           ovr,
           pot,
           salary,
-          mood: randInt(40, 90), // 0-100
+          mood: randInt(40, 90),
           stamina: randInt(70, 100),
           stats: { gp: 0, pts: 0, reb: 0, ast: 0 }
         };
@@ -338,7 +483,7 @@
           name: "My League",
           season: 2026,
           day: 1,
-          phase: "REGULAR_SEASON", // later: PRESEASON, PLAYOFFS, OFFSEASON
+          phase: "REGULAR_SEASON",
         },
         teams,
         players,
@@ -346,44 +491,280 @@
       };
     }
 
-    function loadLeague() {
-      try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (!raw) return defaultLeague();
-        return JSON.parse(raw);
-      } catch (e) {
-        console.warn("Load failed, resetting league:", e);
-        return defaultLeague();
+    /**********************
+     * 2) Schema Migration
+     **********************/
+    function migrateLeague(league, fromVersion) {
+      let version = fromVersion || 0;
+      if (version < 1) {
+        // Migration to v1: ensure all fields exist
+        if (!league.meta) league.meta = { name: "Imported League", season: 2026, day: 1, phase: "REGULAR_SEASON" };
+        if (!league.teams) league.teams = [];
+        if (!league.players) league.players = [];
+        if (!league.log) league.log = [];
+        version = 1;
       }
-    }
-
-    function saveLeague() {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state.league));
-      setSaveStatus("Saved");
-      // tiny status reset
-      clearTimeout(saveLeague._t);
-      saveLeague._t = setTimeout(() => setSaveStatus("Loaded"), 900);
+      return league;
     }
 
     /**********************
-     * 2) State
+     * 3) DB Operations
+     **********************/
+    async function listSaves() {
+      try {
+        if (Array.isArray(db.saves.toArray)) {
+          return await db.saves.toArray();
+        }
+        // In-memory fallback
+        return inMemorySaves;
+      } catch (e) {
+        console.error("Error listing saves:", e);
+        return [];
+      }
+    }
+
+    async function createSave(name) {
+      const id = uuid();
+      const now = Date.now();
+      const saveRecord = { id, name, createdAt: now, updatedAt: now, lastOpenedAt: null };
+      const league = defaultLeague();
+      league.meta.name = name;
+
+      try {
+        if (db.saves.add) await db.saves.add(saveRecord);
+        if (db.leagues.add) await db.leagues.add({ id, blob: league, schemaVersion: CURRENT_SCHEMA_VERSION });
+        if (inMemorySaves && !dbError) inMemorySaves.push(saveRecord);
+        if (inMemoryLeagues && dbError) inMemoryLeagues[id] = { id, blob: league, schemaVersion: CURRENT_SCHEMA_VERSION };
+      } catch (e) {
+        console.error("Error creating save:", e);
+        showBanner("error", "❌ Failed to create save: " + e.message);
+        return null;
+      }
+
+      localStorage.setItem("hoops_last_save_id", id);
+      return id;
+    }
+
+    async function loadSave(id) {
+      try {
+        let leagueRecord;
+        if (db.leagues.where && typeof db.leagues.where === "function") {
+          leagueRecord = await db.leagues.where("id").equals(id).first();
+        } else if (dbError) {
+          leagueRecord = inMemoryLeagues[id];
+        }
+
+        if (!leagueRecord) return null;
+
+        let league = leagueRecord.blob;
+        const fromVersion = leagueRecord.schemaVersion || 0;
+        if (fromVersion < CURRENT_SCHEMA_VERSION) {
+          league = migrateLeague(league, fromVersion);
+        }
+
+        // Update lastOpenedAt
+        const now = Date.now();
+        if (db.saves.update) {
+          await db.saves.update(id, { lastOpenedAt: now, updatedAt: now });
+        } else if (dbError) {
+          const save = inMemorySaves.find(s => s.id === id);
+          if (save) {
+            save.lastOpenedAt = now;
+            save.updatedAt = now;
+          }
+        }
+
+        localStorage.setItem("hoops_last_save_id", id);
+        return league;
+      } catch (e) {
+        console.error("Error loading save:", e);
+        showBanner("error", "❌ Failed to load save: " + e.message);
+        return null;
+      }
+    }
+
+    async function saveCurrentLeague() {
+      if (!state.currentSaveId) return;
+      try {
+        const now = Date.now();
+        if (db.leagues.update) {
+          await db.leagues.update(state.currentSaveId, {
+            blob: state.league,
+            schemaVersion: CURRENT_SCHEMA_VERSION
+          });
+        } else if (dbError) {
+          inMemoryLeagues[state.currentSaveId] = {
+            id: state.currentSaveId,
+            blob: state.league,
+            schemaVersion: CURRENT_SCHEMA_VERSION
+          };
+        }
+
+        if (db.saves.update) {
+          await db.saves.update(state.currentSaveId, { updatedAt: now });
+        } else if (dbError) {
+          const save = inMemorySaves.find(s => s.id === state.currentSaveId);
+          if (save) save.updatedAt = now;
+        }
+
+        setSaveStatus("Saved");
+        clearTimeout(saveCurrentLeague._t);
+        saveCurrentLeague._t = setTimeout(() => setSaveStatus("Loaded"), 900);
+      } catch (e) {
+        console.error("Error saving league:", e);
+        showBanner("error", "❌ Auto-save failed: " + e.message);
+      }
+    }
+
+    async function deleteSave(id) {
+      if (!confirm(`Delete save "${id}"?`)) return false;
+      try {
+        if (db.saves.delete) await db.saves.delete(id);
+        if (db.leagues.delete) await db.leagues.delete(id);
+        if (dbError) {
+          const idx = inMemorySaves.findIndex(s => s.id === id);
+          if (idx >= 0) inMemorySaves.splice(idx, 1);
+          delete inMemoryLeagues[id];
+        }
+        showBanner("success", "✓ Save deleted");
+        return true;
+      } catch (e) {
+        console.error("Error deleting save:", e);
+        showBanner("error", "❌ Failed to delete save: " + e.message);
+        return false;
+      }
+    }
+
+    async function duplicateSave(id) {
+      try {
+        const league = await loadSave(id);
+        if (!league) return null;
+        const saveName = await promptFor("New save name:", `Copy of ${league.meta.name}`);
+        if (!saveName) return null;
+        const newId = await createSave(saveName);
+        if (newId) {
+          const deepCopy = JSON.parse(JSON.stringify(league));
+          if (db.leagues.update) {
+            await db.leagues.update(newId, { blob: deepCopy, schemaVersion: CURRENT_SCHEMA_VERSION });
+          } else if (dbError) {
+            inMemoryLeagues[newId] = { id: newId, blob: deepCopy, schemaVersion: CURRENT_SCHEMA_VERSION };
+          }
+          showBanner("success", "✓ Save duplicated");
+        }
+        return newId;
+      } catch (e) {
+        console.error("Error duplicating save:", e);
+        showBanner("error", "❌ Failed to duplicate save: " + e.message);
+        return null;
+      }
+    }
+
+    /**********************
+     * 4) Export / Import
+     **********************/
+    function exportCurrentLeague() {
+      if (!state.league) return;
+      const data = {
+        name: state.league.meta.name,
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+        league: state.league,
+        exportedAt: new Date().toISOString()
+      };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `hoops-${data.name.replace(/\s+/g, "-")}-${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showBanner("success", "✓ League exported");
+    }
+
+    function promptFor(label, defaultVal) {
+      return new Promise(resolve => {
+        const val = prompt(label, defaultVal);
+        resolve(val);
+      });
+    }
+
+    async function importLeagueFromFile() {
+      return new Promise((resolve) => {
+        const input = document.getElementById("importFile");
+        input.onchange = async (e) => {
+          const file = e.target.files[0];
+          if (!file) return resolve(null);
+          const reader = new FileReader();
+          reader.onload = async (ev) => {
+            try {
+              const data = JSON.parse(ev.target.result);
+              let league = data.league || data;
+              const fromV = data.schemaVersion || 0;
+              league = migrateLeague(league, fromV);
+
+              const saveName = await promptFor("Save name:", data.name || "Imported League");
+              if (!saveName) return resolve(null);
+
+              const newId = await createSave(saveName);
+              if (newId) {
+                if (db.leagues.update) {
+                  await db.leagues.update(newId, { blob: league, schemaVersion: CURRENT_SCHEMA_VERSION });
+                } else if (dbError) {
+                  inMemoryLeagues[newId] = { id: newId, blob: league, schemaVersion: CURRENT_SCHEMA_VERSION };
+                }
+                showBanner("success", "✓ League imported");
+                input.value = "";
+                resolve(newId);
+              } else {
+                resolve(null);
+              }
+            } catch (err) {
+              console.error("Import error:", err);
+              showBanner("error", "❌ Invalid file: " + err.message);
+              input.value = "";
+              resolve(null);
+            }
+          };
+          reader.readAsText(file);
+        };
+        input.click();
+      });
+    }
+
+    /**********************
+     * 5) State + UI Helpers
      **********************/
     const state = {
       route: "dashboard",
-      league: loadLeague(),
+      league: null,
+      currentSaveId: null,
       selectedTeamId: null,
       selectedPlayerId: null,
+      saves: []
     };
 
     function setSaveStatus(text) {
       document.getElementById("saveStatus").textContent = text;
     }
 
+    function showBanner(type, message) {
+      const container = document.getElementById("bannerContainer");
+      if (!container) return;
+      const banner = document.createElement("div");
+      banner.className = `banner ${type}`;
+      banner.innerHTML = `
+        <span>${message}</span>
+        <button style="background:none;border:none;color:inherit;cursor:pointer;font-size:16px;" onclick="this.parentElement.style.display='none';">✕</button>
+      `;
+      container.appendChild(banner);
+      setTimeout(() => {
+        if (banner.parentElement) banner.style.display = "none";
+      }, 4000);
+    }
+
     /**********************
-     * 3) Sim Logic (tiny)
+     * 6) Sim Logic
      **********************/
     function teamPower(teamId) {
-      // Simple: average OVR of roster (top 3 weighted)
       const roster = state.league.players.filter(p => p.teamId === teamId);
       const sorted = [...roster].sort((a,b) => b.ovr - a.ovr);
       const top = sorted.slice(0, 3);
@@ -396,22 +777,18 @@
     function simulateOneGame(teamA, teamB) {
       const aPow = teamPower(teamA.id) + randInt(-6, 6);
       const bPow = teamPower(teamB.id) + randInt(-6, 6);
-
-      // Base points loosely related to power
       const aPts = clamp(Math.round(95 + (aPow - 60) * 1.2 + randInt(-10, 10)), 70, 145);
       const bPts = clamp(Math.round(95 + (bPow - 60) * 1.2 + randInt(-10, 10)), 70, 145);
 
       let winner = teamA, loser = teamB, wPts = aPts, lPts = bPts;
       if (bPts > aPts) { winner = teamB; loser = teamA; wPts = bPts; lPts = aPts; }
-      if (bPts === aPts) { // no ties, we are not doing soccer today
+      if (bPts === aPts) {
         if (Math.random() < 0.5) { winner = teamB; loser = teamA; wPts = bPts + 1; lPts = aPts; }
         else { wPts = aPts + 1; lPts = bPts; }
       }
 
       winner.wins += 1;
       loser.losses += 1;
-
-      // Players: give top guys some stats
       distributeStats(winner.id, true);
       distributeStats(loser.id, false);
 
@@ -419,45 +796,33 @@
     }
 
     function distributeStats(teamId, won) {
-      const roster = state.league.players
-        .filter(p => p.teamId === teamId)
-        .sort((a,b) => b.ovr - a.ovr);
-
+      const roster = state.league.players.filter(p => p.teamId === teamId).sort((a,b) => b.ovr - a.ovr);
       const top = roster.slice(0, 3);
       const others = roster.slice(3);
-
-      // Update GP and box score-ish numbers
       const teamPts = randInt(90, 130);
-      let remaining = teamPts;
 
-      function addLine(p, shareMin, shareMax) {
+      function addLine(p) {
+        const shareMin = top.includes(p) ? 18 : 10;
+        const shareMax = top.includes(p) ? 30 : 18;
         const pts = clamp(Math.round(teamPts * (randInt(shareMin, shareMax)/100)), 6, 45);
-        remaining -= pts;
-
         p.stats.gp += 1;
         p.stats.pts += pts;
         p.stats.reb += randInt(1, 12);
         p.stats.ast += randInt(0, 11);
-
-        // Mood: win helps, loss hurts (tiny)
         p.mood = clamp(p.mood + (won ? randInt(0,2) : -randInt(0,2)), 0, 100);
-        // Stamina: playing costs a bit, recovers in simDay()
         p.stamina = clamp(p.stamina - randInt(2, 6), 0, 100);
       }
 
-      top.forEach(p => addLine(p, 18, 30));
-      others.slice(0, 2).forEach(p => addLine(p, 10, 18));
+      top.forEach(p => addLine(p));
+      others.slice(0, 2).forEach(p => addLine(p));
     }
 
     function simDay() {
       const { meta, teams } = state.league;
-
-      // stamina recovery
       state.league.players.forEach(p => {
         p.stamina = clamp(p.stamina + randInt(1, 4), 0, 100);
       });
 
-      // schedule: just pick 2 random matchups daily
       const shuffled = [...teams].sort(() => Math.random() - 0.5);
       const games = [];
       for (let i = 0; i + 1 < shuffled.length; i += 2) {
@@ -465,7 +830,7 @@
       }
 
       meta.day += 1;
-      if (meta.day > 112) { // fake season length
+      if (meta.day > 112) {
         meta.day = 1;
         meta.season += 1;
         teams.forEach(t => { t.wins = 0; t.losses = 0; });
@@ -475,8 +840,14 @@
       state.league.log.unshift(`Day simmed: ${games.join(" | ")}`);
       if (state.league.log.length > 25) state.league.log.length = 25;
 
-      saveLeague();
+      debounceAutoSave();
       render();
+    }
+
+    // Debounced autosave
+    function debounceAutoSave() {
+      clearTimeout(debounceAutoSave._t);
+      debounceAutoSave._t = setTimeout(() => saveCurrentLeague(), 300);
     }
 
     /**********************
@@ -490,6 +861,116 @@
     }
     function teamById(id) {
       return state.league.teams.find(t => t.id === id);
+    }
+
+    function viewHome() {
+      if (!state.league) {
+        return `
+          <div class="grid">
+            <div class="card" style="grid-column: span 12; min-height: 200px; display: flex; align-items: center; justify-content: center;">
+              <div style="text-align: center;">
+                <h1 style="margin: 0 0 10px 0;">🏀 Hoops Sim</h1>
+                <p style="color: var(--muted); margin: 0 0 20px 0; font-size: 16px;">Front office dreams, spreadsheet reality.</p>
+                <button id="homeLoadSave" class="primary" style="padding: 12px 24px; margin: 0 10px;">Load Save</button>
+                <button id="homeNewSave" class="primary" style="padding: 12px 24px; margin: 0 10px;">New Save</button>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      const { meta, teams, players, log } = state.league;
+      const totalPayroll = players.reduce((s,p)=>s+p.salary,0);
+      const bestTeam = [...teams].sort((a,b) => (b.wins-b.losses) - (a.wins-a.losses))[0];
+      const topPlayer = [...players].sort((a,b) => b.ovr - a.ovr)[0];
+
+      return `
+        <div class="grid">
+          <div class="card" style="grid-column: span 12;">
+            <div class="bd" style="text-align: center; padding: 24px;">
+              <h1 style="margin: 0 0 10px 0; font-size: 32px;">🏀 Hoops Sim</h1>
+              <p style="color: var(--muted); margin: 0 0 20px 0; font-size: 16px;">Front office dreams, spreadsheet reality.</p>
+              <div style="display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
+                <button id="homeContinue" class="primary" style="padding: 12px 20px;">Continue</button>
+                <button id="homeNewLeague" class="danger" style="padding: 12px 20px;">New League</button>
+                <button id="homeLoadSave" style="padding: 12px 20px;">Load League</button>
+                <button id="homeExport" style="padding: 12px 20px;">Export</button>
+                <button id="homeImport" style="padding: 12px 20px;">Import</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card two">
+            <div class="hd">
+              <h2>Current Save</h2>
+              <div class="hint">${escapeHtml(meta.name)}</div>
+            </div>
+            <div class="bd">
+              <div class="kpis">
+                <div class="kpi">
+                  <div class="label">Season</div>
+                  <div class="value">${meta.season}</div>
+                  <div class="delta">Day ${meta.day}</div>
+                </div>
+                <div class="kpi">
+                  <div class="label">Teams</div>
+                  <div class="value">${teams.length}</div>
+                  <div class="delta">Franchises</div>
+                </div>
+                <div class="kpi">
+                  <div class="label">Players</div>
+                  <div class="value">${players.length}</div>
+                  <div class="delta">Roster spots</div>
+                </div>
+                <div class="kpi">
+                  <div class="label">Payroll</div>
+                  <div class="value">${money(totalPayroll)}</div>
+                  <div class="delta">Total spend</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card two">
+            <div class="hd">
+              <h2>At a Glance</h2>
+              <div class="hint">Best team & top player</div>
+            </div>
+            <div class="bd">
+              <div style="margin-bottom: 16px;">
+                <div style="font-weight: 600; margin-bottom: 6px;">Best Team</div>
+                <div style="font-size: 14px;">
+                  <b>${escapeHtml(bestTeam.name)}</b> <span class="tag">${bestTeam.abbrev}</span>
+                  <span class="muted" style="display: block; margin-top: 4px;">${bestTeam.wins}–${bestTeam.losses} · Power: ${teamPower(bestTeam.id).toFixed(1)}</span>
+                </div>
+              </div>
+              <hr style="border: none; border-top: 1px solid var(--line); margin: 12px 0;">
+              <div>
+                <div style="font-weight: 600; margin-bottom: 6px;">Top Player</div>
+                <div style="font-size: 14px;">
+                  <b>${escapeHtml(playerName(topPlayer))}</b> <span class="tag">${topPlayer.pos}</span>
+                  <div class="muted" style="margin-top: 4px; font-size: 13px;">
+                    ${escapeHtml(teamById(topPlayer.teamId).name)} · OVR ${topPlayer.ovr} / POT ${topPlayer.pot}
+                    <br/>Salary: ${money(topPlayer.salary)} · Mood: ${topPlayer.mood} · Stam: ${topPlayer.stamina}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="hd">
+              <h2>Recent Log</h2>
+              <div class="hint">Last 8 events</div>
+            </div>
+            <div class="bd">
+              <div class="log">
+                ${log.slice(0, 8).map(x => `<div class="item">📝 ${escapeHtml(x)}</div>`).join("") || `<div class="item">No events yet.</div>`}
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
     }
 
     function viewDashboard() {
@@ -776,7 +1257,7 @@
     }
 
     /**********************
-     * 5) Rendering + Router
+     * 8) Rendering + Router
      **********************/
     function escapeHtml(str) {
       return String(str).replace(/[&<>"']/g, s => ({
@@ -786,7 +1267,6 @@
 
     function setRoute(route) {
       state.route = route;
-      // update nav highlighting
       document.querySelectorAll("#nav a").forEach(a => {
         a.classList.toggle("active", a.dataset.route === route);
       });
@@ -794,17 +1274,42 @@
     }
 
     function render() {
-      const { meta } = state.league;
-      document.getElementById("dayLabel").textContent = meta.day;
-      document.getElementById("seasonLabel").textContent = `Season ${meta.season}`;
-      document.getElementById("subTitle").textContent = `${meta.name.toLowerCase()} · v0.1`;
-
+      // Home screen can render without a league
+      if (state.route !== "home" && !state.league) return;
+      
       const view = document.getElementById("view");
-      if (state.route === "dashboard") view.innerHTML = viewDashboard();
-      else if (state.route === "league") view.innerHTML = viewLeague();
-      else if (state.route === "teams") view.innerHTML = viewTeams();
-      else if (state.route === "players") view.innerHTML = viewPlayers();
-      else view.innerHTML = `<div class="card"><div class="bd">Unknown route.</div></div>`;
+      
+      if (state.route === "home") {
+        view.innerHTML = viewHome();
+      } else {
+        const { meta } = state.league;
+        document.getElementById("dayLabel").textContent = meta.day;
+        document.getElementById("seasonLabel").textContent = `Season ${meta.season}`;
+        document.getElementById("subTitle").textContent = `${meta.name.toLowerCase()} · v0.1`;
+        
+        if (state.route === "dashboard") view.innerHTML = viewDashboard();
+        else if (state.route === "league") view.innerHTML = viewLeague();
+        else if (state.route === "teams") view.innerHTML = viewTeams();
+        else if (state.route === "players") view.innerHTML = viewPlayers();
+        else view.innerHTML = `<div class="card"><div class="bd">Unknown route.</div></div>`;
+      }
+
+      // Add event listeners for home screen
+      if (state.route === "home") {
+        const continueBtn = document.getElementById("homeContinue");
+        const newLeagueBtn = document.getElementById("homeNewLeague");
+        const loadSaveBtn = document.getElementById("homeLoadSave");
+        const exportBtn = document.getElementById("homeExport");
+        const importBtn = document.getElementById("homeImport");
+        const newSaveBtn = document.getElementById("homeNewSave");
+
+        if (continueBtn) continueBtn.addEventListener("click", () => setRoute("dashboard"));
+        if (newLeagueBtn) newLeagueBtn.addEventListener("click", homeResetLeague);
+        if (loadSaveBtn) loadSaveBtn.addEventListener("click", homeLoadSave);
+        if (exportBtn) exportBtn.addEventListener("click", homeExport);
+        if (importBtn) importBtn.addEventListener("click", homeImport);
+        if (newSaveBtn) newSaveBtn.addEventListener("click", homeNewSave);
+      }
 
       // wire click handlers inside rendered content
       view.querySelectorAll("[data-team]").forEach(el => {
@@ -823,47 +1328,249 @@
       });
     }
 
+    // Home screen event handlers
+    async function homeResetLeague() {
+      if (!state.currentSaveId) {
+        showBanner("error", "❌ No save open");
+        return;
+      }
+      if (!confirm("Reset this save's league?")) return;
+      state.league = defaultLeague();
+      state.league.meta.name = (await listSaves()).find(s => s.id === state.currentSaveId)?.name || "League";
+      state.selectedTeamId = null;
+      state.selectedPlayerId = null;
+      await saveCurrentLeague();
+      render();
+      showBanner("success", "✓ League reset");
+    }
+
+    async function homeLoadSave() {
+      const saves = await listSaves();
+      if (!saves.length) {
+        showBanner("error", "❌ No saves found");
+        return;
+      }
+      // For now, just navigate to sidebar - user can click in saves list
+      // Alternatively, we can show a modal, but keeping it simple
+      setRoute("dashboard");
+    }
+
+    function homeExport() {
+      if (!state.league) {
+        showBanner("error", "❌ No league to export");
+        return;
+      }
+      exportCurrentLeague();
+    }
+
+    async function homeImport() {
+      const newId = await importLeagueFromFile();
+      if (newId) {
+        const league = await loadSave(newId);
+        if (league) {
+          state.league = league;
+          state.currentSaveId = newId;
+          setSaveStatus("Loaded");
+          render();
+          await refillSavesList();
+        }
+      }
+    }
+
+    async function homeNewSave() {
+      const name = await promptFor("Save name:", "New League");
+      if (!name) return;
+      const id = await createSave(name);
+      if (id) {
+        state.league = defaultLeague();
+        state.league.meta.name = name;
+        state.currentSaveId = id;
+        setSaveStatus("Loaded");
+        render();
+        await refillSavesList();
+      }
+    }
+
+    async function refillSavesList() {
+      const savesList = document.getElementById("savesList");
+      if (!savesList) return;
+      const saves = await listSaves();
+      saves.sort((a,b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+
+      savesList.innerHTML = saves.map(s => {
+        const active = s.id === state.currentSaveId ? "active" : "";
+        const date = s.updatedAt ? new Date(s.updatedAt).toLocaleDateString() : "?";
+        return `
+          <div class="save-item ${active}" data-save-id="${s.id}">
+            <div class="save-item-name">${escapeHtml(s.name)}</div>
+            <div class="save-item-info">${date}</div>
+            <div class="save-item-actions">
+              <button data-action="load" title="Load">📂</button>
+              <button data-action="dup" title="Duplicate">📋</button>
+              <button data-action="del" title="Delete">🗑️</button>
+            </div>
+          </div>
+        `;
+      }).join("");
+
+      savesList.querySelectorAll(".save-item").forEach(item => {
+        const saveId = item.dataset.saveId;
+        item.querySelector("[data-action='load']").onclick = async (e) => {
+          e.stopPropagation();
+          const league = await loadSave(saveId);
+          if (league) {
+            state.league = league;
+            state.currentSaveId = saveId;
+            setSaveStatus("Loaded");
+            render();
+            refillSavesList();
+          }
+        };
+        item.querySelector("[data-action='dup']").onclick = async (e) => {
+          e.stopPropagation();
+          const newId = await duplicateSave(saveId);
+          if (newId) refillSavesList();
+        };
+        item.querySelector("[data-action='del']").onclick = async (e) => {
+          e.stopPropagation();
+          const ok = await deleteSave(saveId);
+          if (ok) {
+            if (state.currentSaveId === saveId) {
+              state.currentSaveId = null;
+              state.league = null;
+              setSaveStatus("No save");
+              render();
+            }
+            refillSavesList();
+          }
+        };
+      });
+    }
+
     /**********************
-     * 6) UI Events
+     * 9) UI Events
      **********************/
     document.getElementById("nav").addEventListener("click", (e) => {
       const a = e.target.closest("a[data-route]");
       if (!a) return;
       e.preventDefault();
       setRoute(a.dataset.route);
-      // close sidebar on mobile
       document.getElementById("sidebar").classList.remove("open");
     });
 
     document.getElementById("sim1").addEventListener("click", simDay);
     document.getElementById("sim7").addEventListener("click", () => { for (let i=0;i<7;i++) simDay(); });
 
-    document.getElementById("newLeague").addEventListener("click", () => {
-      // blunt on purpose: prototype life
-      if (!confirm("Reset league? This will wipe the saved league in this browser.")) return;
+    document.getElementById("newLeague").addEventListener("click", async () => {
+      if (!state.currentSaveId) {
+        showBanner("error", "❌ No save open");
+        return;
+      }
+      if (!confirm("Reset this save's league?")) return;
       state.league = defaultLeague();
+      state.league.meta.name = (await listSaves()).find(s => s.id === state.currentSaveId)?.name || "League";
       state.selectedTeamId = null;
       state.selectedPlayerId = null;
-      saveLeague();
+      await saveCurrentLeague();
       render();
+      showBanner("success", "✓ League reset");
     });
 
     document.getElementById("toggleSidebar").addEventListener("click", () => {
       document.getElementById("sidebar").classList.toggle("open");
     });
 
-    // Hash routing for deep links
-    window.addEventListener("hashchange", () => {
-      const route = (location.hash || "#dashboard").replace("#","").trim();
-      const known = ["dashboard","league","teams","players"];
-      setRoute(known.includes(route) ? route : "dashboard");
+    document.getElementById("btnNewSave").addEventListener("click", async () => {
+      const name = await promptFor("Save name:", "New League");
+      if (!name) return;
+      const id = await createSave(name);
+      if (id) {
+        state.league = defaultLeague();
+        state.league.meta.name = name;
+        state.currentSaveId = id;
+        setSaveStatus("Loaded");
+        render();
+        await refillSavesList();
+      }
     });
 
-    // initial route
-    (() => {
-      const route = (location.hash || "#dashboard").replace("#","").trim();
-      const known = ["dashboard","league","teams","players"];
-      setRoute(known.includes(route) ? route : "dashboard");
+    document.getElementById("btnExport").addEventListener("click", () => {
+      if (!state.league) {
+        showBanner("error", "❌ No save open");
+        return;
+      }
+      exportCurrentLeague();
+    });
+
+    document.getElementById("btnImport").addEventListener("click", async () => {
+      const newId = await importLeagueFromFile();
+      if (newId) {
+        const league = await loadSave(newId);
+        if (league) {
+          state.league = league;
+          state.currentSaveId = newId;
+          setSaveStatus("Loaded");
+          render();
+          await refillSavesList();
+        }
+      }
+    });
+
+    // Hash routing
+    window.addEventListener("hashchange", () => {
+      const route = (location.hash || "#home").replace("#","").trim();
+      const known = ["home","dashboard","league","teams","players"];
+      setRoute(known.includes(route) ? route : "home");
+    });
+
+    // Initialization
+    (async () => {
+      setSaveStatus("Loading...");
+      await initDB();
+      
+      if (dbError) {
+        showBanner("warning", dbErrorMsg);
+      }
+
+      // Try to load last opened save
+      let lastId = localStorage.getItem("hoops_last_save_id");
+      let saves = await listSaves();
+      
+      if (!saves.length) {
+        // First run: create default save
+        lastId = await createSave("My League");
+      }
+
+      if (lastId && saves.find(s => s.id === lastId)) {
+        const league = await loadSave(lastId);
+        if (league) {
+          state.league = league;
+          state.currentSaveId = lastId;
+          setSaveStatus("Loaded");
+        }
+      } else if (saves.length > 0) {
+        // Load the most recent save
+        saves.sort((a,b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+        const league = await loadSave(saves[0].id);
+        if (league) {
+          state.league = league;
+          state.currentSaveId = saves[0].id;
+          setSaveStatus("Loaded");
+        }
+      }
+
+      if (!state.league) {
+        showBanner("error", "❌ Failed to load league");
+        state.league = defaultLeague();
+        setSaveStatus("Offline mode");
+      }
+
+      await refillSavesList();
+
+      // Initial route
+      const route = (location.hash || "#home").replace("#","").trim();
+      const known = ["home","dashboard","league","teams","players"];
+      setRoute(known.includes(route) ? route : "home");
     })();
   </script>
 </body>
