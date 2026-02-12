@@ -2619,7 +2619,19 @@
     }
 
     function viewStandings() {
-      const teams = [...state.league.teams].sort((a, b) => {
+      // Get conference filter
+      const confFilter = window._standingsFilter || "all"; // "all", "east", or "west"
+      
+      // Filter teams by conference
+      let teams = [...state.league.teams];
+      if (confFilter === "east") {
+        teams = teams.filter(t => t.conf === "Eastern");
+      } else if (confFilter === "west") {
+        teams = teams.filter(t => t.conf === "Western");
+      }
+      
+      // Sort by wins then losses
+      teams.sort((a, b) => {
         if (b.wins !== a.wins) return b.wins - a.wins;
         return a.losses - b.losses;
       });
@@ -2639,6 +2651,12 @@
               <div class="hint">W-L records, conference standings, and streaks</div>
             </div>
             <div class="bd">
+              <!-- Conference Filter Buttons -->
+              <div style="display: flex; gap: 8px; margin-bottom: 16px;">
+                <button id="standingsFilterAll" class="btn ${confFilter === 'all' ? 'active' : ''}" style="flex: 1; padding: 8px; font-size: 13px; border: 1px solid #60a5fa; background: ${confFilter === 'all' ? '#60a5fa' : 'transparent'}; color: ${confFilter === 'all' ? '#000' : '#60a5fa'}; cursor: pointer; border-radius: 4px; transition: all 0.2s;">All Conferences</button>
+                <button id="standingsFilterEast" class="btn ${confFilter === 'east' ? 'active' : ''}" style="flex: 1; padding: 8px; font-size: 13px; border: 1px solid #34d399; background: ${confFilter === 'east' ? '#34d399' : 'transparent'}; color: ${confFilter === 'east' ? '#000' : '#34d399'}; cursor: pointer; border-radius: 4px; transition: all 0.2s;">Eastern</button>
+                <button id="standingsFilterWest" class="btn ${confFilter === 'west' ? 'active' : ''}" style="flex: 1; padding: 8px; font-size: 13px; border: 1px solid #f87171; background: ${confFilter === 'west' ? '#f87171' : 'transparent'}; color: ${confFilter === 'west' ? '#000' : '#f87171'}; cursor: pointer; border-radius: 4px; transition: all 0.2s;">Western</button>
+              </div>
               <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
                 <thead>
                   <tr style="border-bottom: 2px solid #60a5fa;">
@@ -2789,6 +2807,29 @@
       const teamsSearchInput = document.getElementById("teamsSearchInput");
       if (teamsSearchInput) {
         teamsSearchInput.addEventListener("keyup", () => render());
+      }
+
+      // Standings View - Conference filter buttons
+      const standingsFilterAll = document.getElementById("standingsFilterAll");
+      const standingsFilterEast = document.getElementById("standingsFilterEast");
+      const standingsFilterWest = document.getElementById("standingsFilterWest");
+      if (standingsFilterAll) {
+        standingsFilterAll.addEventListener("click", () => {
+          window._standingsFilter = "all";
+          render();
+        });
+      }
+      if (standingsFilterEast) {
+        standingsFilterEast.addEventListener("click", () => {
+          window._standingsFilter = "east";
+          render();
+        });
+      }
+      if (standingsFilterWest) {
+        standingsFilterWest.addEventListener("click", () => {
+          window._standingsFilter = "west";
+          render();
+        });
       }
 
       // Teams View - View My Team button
