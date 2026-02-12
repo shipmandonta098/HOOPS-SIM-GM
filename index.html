@@ -2184,43 +2184,165 @@
     }
 
     function viewTeams() {
-      const teams = [...state.league.teams].sort((a,b)=>a.name.localeCompare(b.name));
+      // Determine filter mode
+      const filterMode = window._teamsViewFilter || "all"; // "all" or "myteam"
+      const searchQuery = (document.getElementById("teamsSearchInput")?.value || "").toLowerCase();
+      
+      // Get teams to display
+      let teams = [...state.league.teams];
+      
+      // Filter by mode
+      if (filterMode === "myteam" && state.userTeamId) {
+        teams = teams.filter(t => t.id === state.userTeamId);
+      }
+      
+      // Filter by search
+      if (searchQuery) {
+        teams = teams.filter(t => 
+          t.name.toLowerCase().includes(searchQuery) || 
+          t.abbrev.toLowerCase().includes(searchQuery)
+        );
+      }
+      
+      // Sort by name
+      teams.sort((a,b) => a.name.localeCompare(b.name));
+      
+      const selectedTeam = state.selectedTeamId ? teamById(state.selectedTeamId) : null;
+
       return `
         <div class="grid">
-          <div class="card">
+          <!-- LEFT PANEL: Team List -->
+          <div class="card two">
             <div class="hd">
               <h2>Teams</h2>
-              <div class="hint">Click a team name to see roster</div>
+              <div class="hint">Browse & select</div>
             </div>
             <div class="bd">
-              <table>
-                <thead>
-                  <tr><th>Team</th><th>Record</th><th>Payroll</th><th>Cash</th></tr>
-                </thead>
-                <tbody>
-                  ${teams.map(t => {
-                    const payroll = state.league.players.filter(p=>p.teamId===t.id).reduce((s,p)=>s+p.salary,0);
-                    const logoSvg = t.color ? generateTeamLogo(t.abbrev, t.color, 24) : '';
-                    return `
-                      <tr>
-                        <td><span>${logoSvg}</span> <span class="click" data-team="${t.id}">${escapeHtml(t.name)}</span> <span class="tag">${t.abbrev}</span></td>
-                        <td>${t.wins}-${t.losses}</td>
-                        <td>${money(payroll)}</td>
-                        <td>${money(t.cash)}</td>
-                      </tr>
-                    `;
-                  }).join("")}
-                </tbody>
-              </table>
+              <!-- Filter Buttons -->
+              <div style="display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap;">
+                <button id="teamsFilterAll" class="secondary ${filterMode === "all" ? "primary" : ""}" style="flex: 1; min-width: 100px;">All Teams</button>
+                ${state.userTeamId ? `
+                  <button id="teamsFilterMyTeam" class="secondary ${filterMode === "myteam" ? "primary" : ""}" style="flex: 1; min-width: 100px;">My Team</button>
+                ` : `
+                  <div style="color: var(--muted); font-size: 12px; padding: 8px; flex: 1;">No managed team selected.</div>
+                `}
+              </div>
+              
+              <!-- Search Box -->
+              <input type="text" id="teamsSearchInput" placeholder="Search teams…" style="width: 100%; padding: 8px; margin-bottom: 12px; border: 1px solid var(--line); background: rgba(15,23,42,.6); color: inherit; border-radius: 6px; font-size: 13px;">
+              
+              <!-- Teams List -->
+              <div style="max-height: 500px; overflow-y: auto;">
+                <table style="width: 100%;">
+                  <tbody>
+                    ${teams.length > 0 ? teams.map(t => {
+                      const payroll = state.league.players.filter(p=>p.teamId===t.id).reduce((s,p)=>s+p.salary,0);
+                      const logoSvg = t.color ? generateTeamLogo(t.abbrev, t.color, 20) : '';
+                      const isSelected = state.selectedTeamId === t.id;
+                      const isUserTeam = state.userTeamId === t.id;
+                      const rowBg = isSelected ? "background-color: rgba(96,165,250,.15);" : isUserTeam ? "background-color: rgba(52,211,153,.08);" : "";
+                      
+                      return `
+                        <tr onclick="setTeamSelection('${t.id}')" style="cursor: pointer; border-bottom: 1px solid var(--line); ${rowBg} transition: background-color 0.2s;">
+                          <td style="padding: 10px 6px; text-align: left;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                              <span>${logoSvg}</span>
+                              <div>
+                                <div style="font-weight: 500; font-size: 13px;">${escapeHtml(t.name)}</div>
+                                <div style="color: var(--muted); font-size: 11px;">${t.abbrev}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td style="padding: 10px 6px; text-align: right; font-size: 12px; white-space: nowrap;">
+                            ${isUserTeam ? `<span style="color: #34d399; font-weight: bold; margin-right: 8px;">MY TEAM</span>` : ''}
+                            <span>${t.wins}–${t.losses}</span>
+                          </td>
+                        </tr>
+                      `;
+                    }).join("") : `
+                      <tr><td style="padding: 20px; text-align: center; color: var(--muted);">No teams found</td></tr>
+                    `}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
 
-          ${state.selectedTeamId ? teamDetailCard(state.selectedTeamId) : `
-            <div class="card">
-              <div class="hd"><h2>Team Detail</h2><div class="hint">Select a team above</div></div>
-              <div class="bd"><span class="muted">No team selected.</span></div>
-            </div>
-          `}
+          <!-- RIGHT PANEL: Roster Viewer -->
+          <div class="card two">
+            ${selectedTeam ? `
+              <!-- Roster Header -->
+              <div class="hd">
+                <div>
+                  <h2>${selectedTeam.color ? generateTeamLogo(selectedTeam.abbrev, selectedTeam.color, 28) : ''} ${escapeHtml(selectedTeam.name)}</h2>
+                  <div class="hint">${selectedTeam.abbrev} · ${selectedTeam.wins}–${selectedTeam.losses} · Power: ${teamPower(selectedTeam.id).toFixed(1)}</div>
+                </div>
+              </div>
+              <div class="bd">
+                <!-- Quick Actions -->
+                <div style="display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap;">
+                  ${state.userTeamId && state.userTeamId !== state.selectedTeamId ? `
+                    <button id="viewMyTeamBtn" class="secondary" style="flex: 1; min-width: 120px;">View My Team</button>
+                  ` : ''}
+                  <button class="secondary" disabled style="color: var(--muted); flex: 1; min-width: 120px;">Compare (Coming Soon)</button>
+                </div>
+                
+                <!-- Roster Table -->
+                ${viewRosterTable(selectedTeam.id)}
+              </div>
+            ` : `
+              <div class="hd">
+                <h2>Roster</h2>
+                <div class="hint">Select a team to view</div>
+              </div>
+              <div class="bd">
+                <span class="muted">Select a team from the list to view their roster.</span>
+              </div>
+            `}
+          </div>
+        </div>
+      `;
+    }
+
+    function viewRosterTable(teamId) {
+      const roster = state.league.players.filter(p=>p.teamId===teamId).sort((a,b)=>b.ovr-a.ovr);
+      const payroll = roster.reduce((s,p)=>s+p.salary,0);
+      
+      return `
+        <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+          <thead>
+            <tr style="border-bottom: 2px solid var(--line);">
+              <th style="text-align: left; padding: 8px; font-weight: bold; color: #60a5fa;">Player</th>
+              <th style="text-align: center; padding: 8px; font-weight: bold; color: #60a5fa;">Pos</th>
+              <th style="text-align: center; padding: 8px; font-weight: bold; color: #60a5fa;">Age</th>
+              <th style="text-align: center; padding: 8px; font-weight: bold; color: #60a5fa;">OVR</th>
+              <th style="text-align: center; padding: 8px; font-weight: bold; color: #60a5fa;">POT</th>
+              <th style="text-align: center; padding: 8px; font-weight: bold; color: #60a5fa;">Salary</th>
+              <th style="text-align: center; padding: 8px; font-weight: bold; color: #60a5fa;">Mood</th>
+              <th style="text-align: center; padding: 8px; font-weight: bold; color: #60a5fa;">Stam</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${roster.map((p, idx) => `
+              <tr style="border-bottom: 1px solid var(--line); ${idx % 2 === 0 ? 'background-color: rgba(15,23,42,.6);' : ''}">
+                <td style="padding: 10px 8px; text-align: left;">
+                  <span class="click" onclick="selectPlayerFromTeams('${p.id}')" style="cursor: pointer;">${escapeHtml(playerName(p))}</span>
+                </td>
+                <td style="padding: 10px 8px; text-align: center; font-size: 12px;">${p.pos}</td>
+                <td style="padding: 10px 8px; text-align: center; font-size: 12px;">${p.age}</td>
+                <td style="padding: 10px 8px; text-align: center; font-size: 12px; font-weight: bold; color: #60a5fa;">${p.ovr}</td>
+                <td style="padding: 10px 8px; text-align: center; font-size: 12px;">${p.pot}</td>
+                <td style="padding: 10px 8px; text-align: center; font-size: 12px;">${money(p.salary)}</td>
+                <td style="padding: 10px 8px; text-align: center;">
+                  <span style="padding: 2px 6px; border-radius: 4px; font-size: 11px; background-color: ${p.mood >= 60 ? 'rgba(52,211,153,.2)' : 'rgba(248,113,113,.2)'}; color: ${p.mood >= 60 ? '#34d399' : '#f87171'};">${p.mood}</span>
+                </td>
+                <td style="padding: 10px 8px; text-align: center; font-size: 12px;">${p.stamina}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+        <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted);">
+          Payroll: ${money(payroll)} / Salary Cap: $120,000,000
         </div>
       `;
     }
@@ -2646,6 +2768,39 @@
           showBanner("success", "✓ Day simulated");
         });
       }
+
+      // Teams View - Filter buttons
+      const teamsFilterAll = document.getElementById("teamsFilterAll");
+      const teamsFilterMyTeam = document.getElementById("teamsFilterMyTeam");
+      if (teamsFilterAll) {
+        teamsFilterAll.addEventListener("click", () => {
+          window._teamsViewFilter = "all";
+          render();
+        });
+      }
+      if (teamsFilterMyTeam) {
+        teamsFilterMyTeam.addEventListener("click", () => {
+          window._teamsViewFilter = "myteam";
+          render();
+        });
+      }
+
+      // Teams View - Search input
+      const teamsSearchInput = document.getElementById("teamsSearchInput");
+      if (teamsSearchInput) {
+        teamsSearchInput.addEventListener("keyup", () => render());
+      }
+
+      // Teams View - View My Team button
+      const viewMyTeamBtn = document.getElementById("viewMyTeamBtn");
+      if (viewMyTeamBtn) {
+        viewMyTeamBtn.addEventListener("click", () => {
+          if (state.userTeamId) {
+            state.selectedTeamId = state.userTeamId;
+            render();
+          }
+        });
+      }
     }
 
     // Home screen event handlers
@@ -2978,6 +3133,16 @@
     function selectTeamForStandings(teamId) {
       state.selectedTeamId = teamId;
       setRoute("teams");
+    }
+
+    function setTeamSelection(teamId) {
+      state.selectedTeamId = teamId;
+      render();
+    }
+
+    function selectPlayerFromTeams(playerId) {
+      state.selectedPlayerId = playerId;
+      setRoute("players");
     }
 
     // Initialization
