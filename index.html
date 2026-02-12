@@ -1182,6 +1182,22 @@
       }
     }
 
+    /**********************
+     * Schema Versioning System
+     * 
+     * Every league object must include:
+     *   league.schemaVersion (number)
+     * 
+     * When updating league structure:
+     *   1. Increment CURRENT_SCHEMA_VERSION
+     *   2. Add migration logic in migrateLeague() function
+     *   3. All existing leagues auto-upgrade on load
+     *   4. Migrations are non-destructive (preserve unknown properties)
+     *
+     * Schema Version History:
+     *   v0: Original - implicit version if schemaVersion missing
+     *   v1: Core structure (meta, teams, players, log)
+     **********************/
     const CURRENT_SCHEMA_VERSION = 1;
     const inMemorySaves = [];
     const inMemoryLeagues = {};
@@ -1353,24 +1369,75 @@
         },
         teams,
         players,
-        log: ["League created."]
+        log: ["League created."],
+        schemaVersion: CURRENT_SCHEMA_VERSION
       };
     }
 
     /**********************
      * 2) Schema Migration
      **********************/
-    function migrateLeague(league, fromVersion) {
-      let version = fromVersion || 0;
-      if (version < 1) {
-        // Migration to v1: ensure all fields exist
-        if (!league.meta) league.meta = { name: "Imported League", season: 2026, day: 1, phase: "REGULAR_SEASON" };
-        if (!league.teams) league.teams = [];
-        if (!league.players) league.players = [];
-        if (!league.log) league.log = [];
-        version = 1;
+    function migrateLeague(league) {
+      try {
+        // Determine starting version
+        let v = league.schemaVersion || 0;
+        
+        if (v >= CURRENT_SCHEMA_VERSION) {
+          // Already at latest version
+          return league;
+        }
+
+        console.log(`[Migration] Starting league migration from v${v} → v${CURRENT_SCHEMA_VERSION}`);
+
+        // Migration loop: incrementally apply each version upgrade
+        while (v < CURRENT_SCHEMA_VERSION) {
+          
+          if (v === 0) {
+            // v0 → v1: Ensure all core fields exist
+            console.log("[Migration] Applying v0 → v1: Ensuring all core fields exist");
+            
+            league.meta = league.meta || {};
+            league.meta.name = league.meta.name || "Imported League";
+            league.meta.season = league.meta.season || 2026;
+            league.meta.day = league.meta.day || 1;
+            league.meta.phase = league.meta.phase || "REGULAR_SEASON";
+            
+            league.teams = league.teams || [];
+            league.players = league.players || [];
+            league.log = league.log || [];
+            
+            v = 1;
+            league.schemaVersion = 1;
+            console.log("[Migration] ✓ v0 → v1 complete");
+          }
+          
+          // Add future migrations here:
+          // } else if (v === 1) {
+          //   // v1 → v2: example future migration
+          //   console.log("[Migration] Applying v1 → v2");
+          //   v = 2;
+          //   league.schemaVersion = 2;
+          // } else if (v === 2) {
+          //   // v2 → v3: another future migration
+          //   console.log("[Migration] Applying v2 → v3");
+          //   v = 3;
+          //   league.schemaVersion = 3;
+          // }
+          
+          else {
+            // Safety: if we encounter an unknown version, log and break
+            console.warn(`[Migration] Unknown schema version ${v}, breaking migration loop`);
+            break;
+          }
+        }
+
+        console.log(`[Migration] ✓ Migration complete. League now at v${league.schemaVersion}`);
+        return league;
+
+      } catch (err) {
+        console.error("[Migration] ERROR during migration:", err);
+        throw err;
       }
-      return league;
     }
 
     /**********************
@@ -1423,9 +1490,31 @@
         if (!leagueRecord) return null;
 
         let league = leagueRecord.blob;
-        const fromVersion = leagueRecord.schemaVersion || 0;
-        if (fromVersion < CURRENT_SCHEMA_VERSION) {
-          league = migrateLeague(league, fromVersion);
+        const originalVersion = league.schemaVersion || 0;
+        
+        // Migrate league to current schema version
+        league = migrateLeague(league);
+        
+        // If migration occurred, save the upgraded league back to storage
+        if ((league.schemaVersion || 0) > originalVersion) {
+          console.log(`[LoadSave] Saving migrated league (v${originalVersion} → v${league.schemaVersion}) back to storage`);
+          try {
+            if (db.leagues.update) {
+              await db.leagues.update(id, {
+                blob: league,
+                schemaVersion: league.schemaVersion
+              });
+            } else if (dbError) {
+              inMemoryLeagues[id] = {
+                id,
+                blob: league,
+                schemaVersion: league.schemaVersion
+              };
+            }
+          } catch (saveErr) {
+            console.error("[LoadSave] Warning: Could not save migrated league back to storage:", saveErr);
+            // Continue anyway - we have the migrated league in memory
+          }
         }
 
         // Update lastOpenedAt
@@ -1452,17 +1541,22 @@
     async function saveCurrentLeague() {
       if (!state.currentSaveId) return;
       try {
+        // Ensure league has schemaVersion
+        if (!state.league.schemaVersion) {
+          state.league.schemaVersion = CURRENT_SCHEMA_VERSION;
+        }
+        
         const now = Date.now();
         if (db.leagues.update) {
           await db.leagues.update(state.currentSaveId, {
             blob: state.league,
-            schemaVersion: CURRENT_SCHEMA_VERSION
+            schemaVersion: state.league.schemaVersion
           });
         } else if (dbError) {
           inMemoryLeagues[state.currentSaveId] = {
             id: state.currentSaveId,
             blob: state.league,
-            schemaVersion: CURRENT_SCHEMA_VERSION
+            schemaVersion: state.league.schemaVersion
           };
         }
 
@@ -1564,20 +1658,31 @@
             try {
               const data = JSON.parse(ev.target.result);
               let league = data.league || data;
-              const fromV = data.schemaVersion || 0;
-              league = migrateLeague(league, fromV);
+              
+              // Run migration on imported league
+              console.log("[Import] Migrating imported league");
+              league = migrateLeague(league);
 
               const saveName = await promptFor("Save name:", data.name || "Imported League");
               if (!saveName) return resolve(null);
 
               const newId = await createSave(saveName);
               if (newId) {
+                // Save migrated league with current schema version
                 if (db.leagues.update) {
-                  await db.leagues.update(newId, { blob: league, schemaVersion: CURRENT_SCHEMA_VERSION });
+                  await db.leagues.update(newId, {
+                    blob: league,
+                    schemaVersion: league.schemaVersion
+                  });
                 } else if (dbError) {
-                  inMemoryLeagues[newId] = { id: newId, blob: league, schemaVersion: CURRENT_SCHEMA_VERSION };
+                  inMemoryLeagues[newId] = {
+                    id: newId,
+                    blob: league,
+                    schemaVersion: league.schemaVersion
+                  };
                 }
                 showBanner("success", "✓ League imported");
+                console.log(`[Import] ✓ League imported and saved with schemaVersion ${league.schemaVersion}`);
                 input.value = "";
                 resolve(newId);
               } else {
