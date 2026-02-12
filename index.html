@@ -1743,20 +1743,6 @@
 
       return `
         <div class="grid">
-          <div class="card" style="grid-column: span 12;">
-            <div class="bd" style="text-align: center; padding: 24px;">
-              <h1 style="margin: 0 0 10px 0; font-size: 32px;">🏀 Hoops Sim</h1>
-              <p style="color: var(--muted); margin: 0 0 20px 0; font-size: 16px;">Front office dreams, spreadsheet reality.</p>
-              <div style="display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
-                <button id="homeContinue" class="primary" style="padding: 12px 20px;">Continue</button>
-                <button id="homeNewLeague" class="danger" style="padding: 12px 20px;">New League</button>
-                <button id="homeLoadSave" style="padding: 12px 20px;">Load League</button>
-                <button id="homeExport" style="padding: 12px 20px;">Export</button>
-                <button id="homeImport" style="padding: 12px 20px;">Import</button>
-              </div>
-            </div>
-          </div>
-
           <div class="card two">
             <div class="hd">
               <h2>Current Save</h2>
@@ -2160,18 +2146,10 @@
 
       // Add event listeners for home screen
       if (state.route === "home") {
-        const continueBtn = document.getElementById("homeContinue");
-        const newLeagueBtn = document.getElementById("homeNewLeague");
         const loadSaveBtn = document.getElementById("homeLoadSave");
-        const exportBtn = document.getElementById("homeExport");
-        const importBtn = document.getElementById("homeImport");
         const newSaveBtn = document.getElementById("homeNewSave");
 
-        if (continueBtn) continueBtn.addEventListener("click", () => setRoute("dashboard"));
-        if (newLeagueBtn) newLeagueBtn.addEventListener("click", homeResetLeague);
         if (loadSaveBtn) loadSaveBtn.addEventListener("click", homeLoadSave);
-        if (exportBtn) exportBtn.addEventListener("click", homeExport);
-        if (importBtn) importBtn.addEventListener("click", homeImport);
         if (newSaveBtn) newSaveBtn.addEventListener("click", homeNewSave);
       }
 
