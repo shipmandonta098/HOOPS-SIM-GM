@@ -2976,7 +2976,10 @@
                 </div>
                 <div style="font-size: 11px; color: var(--muted);">Last played: ${lastPlayedDate}</div>
               </div>
-              <button class="mini-btn continue-btn" data-save-id="${save.id}" style="white-space: nowrap;">Load</button>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <button class="mini-btn continue-btn" data-save-id="${save.id}" style="white-space: nowrap;">Load</button>
+                <button class="mini-btn delete-btn" data-save-id="${save.id}" style="white-space: nowrap; background-color: #ef4444; color: #fff;">Delete</button>
+              </div>
             </div>
           `;
         }
@@ -2988,17 +2991,34 @@
         preview.querySelectorAll('.save-preview').forEach(item => {
           const saveId = item.dataset.saveId;
           
-          // Make entire card clickable in addition to button
+          // Make entire card clickable (excluding buttons)
           item.addEventListener('click', async (e) => {
-            if (e.target.closest('.continue-btn')) return; // Prevent double handling
+            if (e.target.closest('.continue-btn') || e.target.closest('.delete-btn')) return;
             await loadSaveAndEnter(saveId);
           });
           
-          // Button handler
+          // Load button handler
           item.querySelector('.continue-btn').addEventListener('click', async (e) => {
             e.stopPropagation();
             await loadSaveAndEnter(saveId);
           });
+          
+          // Delete button handler
+          const deleteBtn = item.querySelector('.delete-btn');
+          if (deleteBtn) {
+            deleteBtn.addEventListener('click', async (e) => {
+              e.stopPropagation();
+              const ok = await deleteSave(saveId);
+              if (ok) {
+                if (state.currentSaveId === saveId) {
+                  state.currentSaveId = null;
+                  state.league = null;
+                  setSaveStatus("No save");
+                }
+                await populateFrontOfficeSaves();
+              }
+            });
+          }
         });
         
         // Show Continue Latest button if leagues exist
