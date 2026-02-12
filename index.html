@@ -819,6 +819,19 @@
       font-weight: 700;
       color: #60a5fa;
       letter-spacing: 1px;
+      margin-bottom: 6px;
+    }
+
+    #createLeagueModal .team-card .team-info {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      font-size: 8px;
+      color: var(--muted);
+    }
+
+    #createLeagueModal .team-card .team-info span {
+      line-height: 1;
     }
 
     /* Managed Team Selection */
@@ -871,6 +884,19 @@
       font-weight: 700;
       color: #34d399;
       font-size: 10px;
+      margin-bottom: 4px;
+    }
+
+    #createLeagueModal .managed-team-info {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      font-size: 8px;
+      color: var(--muted);
+    }
+
+    #createLeagueModal .managed-team-info span {
+      line-height: 1;
     }
 
     #createLeagueModal .league-size-selector {
@@ -1146,36 +1172,36 @@
 
     // 30 U.S. City-Based Basketball Teams (Original Nicknames, Not NBA)
     const FICTIONAL_TEAMS = [
-      { name: "Austin Vipers", abbrev: "AUS" },
-      { name: "Boston Royals", abbrev: "BOS" },
-      { name: "Charlotte Dynasty", abbrev: "CHN" },
-      { name: "Chicago Wolves", abbrev: "CHW" },
-      { name: "Cleveland Titans", abbrev: "CLT" },
-      { name: "Dallas Outlaws", abbrev: "DAL" },
-      { name: "Denver Avalanche", abbrev: "DEN" },
-      { name: "Detroit Motors", abbrev: "DET" },
-      { name: "Houston Crusaders", abbrev: "HOU" },
-      { name: "Indianapolis Patriots", abbrev: "IND" },
-      { name: "Kansas City Royalty", abbrev: "KCR" },
-      { name: "Las Vegas Outliers", abbrev: "LVE" },
-      { name: "Los Angeles Radiance", abbrev: "LAR" },
-      { name: "Memphis Legends", abbrev: "MEM" },
-      { name: "Miami Dolphins", abbrev: "MIA" },
-      { name: "Milwaukee Craftsmen", abbrev: "MIL" },
-      { name: "Minneapolis Tempest", abbrev: "MIN" },
-      { name: "New Orleans Legends", abbrev: "NOL" },
-      { name: "New York Emperors", abbrev: "NYE" },
-      { name: "Philadelphia Rebels", abbrev: "PHI" },
-      { name: "Phoenix Scorpions", abbrev: "PHX" },
-      { name: "Portland Fury", abbrev: "POR" },
-      { name: "Sacramento Sovereigns", abbrev: "SAC" },
-      { name: "San Antonio Silver", abbrev: "SAS" },
-      { name: "San Diego Explorers", abbrev: "SDI" },
-      { name: "San Francisco Dynasty", abbrev: "SFD" },
-      { name: "Seattle Tempests", abbrev: "SEA" },
-      { name: "Tampa Bay Raiders", abbrev: "TAM" },
-      { name: "Toronto Legends", abbrev: "TOR" },
-      { name: "Washington Dynasty", abbrev: "WAS" },
+      { name: "Austin Vipers", abbrev: "AUS", market_size: "Medium", conference: "Western", division: "Southwest" },
+      { name: "Boston Royals", abbrev: "BOS", market_size: "Large", conference: "Eastern", division: "Atlantic" },
+      { name: "Charlotte Dynasty", abbrev: "CHN", market_size: "Small", conference: "Eastern", division: "Southeast" },
+      { name: "Chicago Wolves", abbrev: "CHW", market_size: "Large", conference: "Eastern", division: "Central" },
+      { name: "Cleveland Titans", abbrev: "CLT", market_size: "Small", conference: "Eastern", division: "Central" },
+      { name: "Dallas Outlaws", abbrev: "DAL", market_size: "Large", conference: "Western", division: "Southwest" },
+      { name: "Denver Avalanche", abbrev: "DEN", market_size: "Medium", conference: "Western", division: "Southwest" },
+      { name: "Detroit Motors", abbrev: "DET", market_size: "Small", conference: "Eastern", division: "Central" },
+      { name: "Houston Crusaders", abbrev: "HOU", market_size: "Large", conference: "Western", division: "Southwest" },
+      { name: "Indianapolis Patriots", abbrev: "IND", market_size: "Medium", conference: "Eastern", division: "Southeast" },
+      { name: "Kansas City Royalty", abbrev: "KCR", market_size: "Small", conference: "Western", division: "Mountain" },
+      { name: "Las Vegas Outliers", abbrev: "LVE", market_size: "Small", conference: "Western", division: "Mountain" },
+      { name: "Los Angeles Radiance", abbrev: "LAR", market_size: "Large", conference: "Western", division: "Pacific" },
+      { name: "Memphis Legends", abbrev: "MEM", market_size: "Small", conference: "Eastern", division: "Southeast" },
+      { name: "Miami Dolphins", abbrev: "MIA", market_size: "Large", conference: "Eastern", division: "Southeast" },
+      { name: "Milwaukee Craftsmen", abbrev: "MIL", market_size: "Small", conference: "Eastern", division: "Central" },
+      { name: "Minneapolis Tempest", abbrev: "MIN", market_size: "Medium", conference: "Eastern", division: "Central" },
+      { name: "New Orleans Legends", abbrev: "NOL", market_size: "Small", conference: "Eastern", division: "Southeast" },
+      { name: "New York Emperors", abbrev: "NYE", market_size: "Large", conference: "Eastern", division: "Atlantic" },
+      { name: "Philadelphia Rebels", abbrev: "PHI", market_size: "Large", conference: "Eastern", division: "Atlantic" },
+      { name: "Phoenix Scorpions", abbrev: "PHX", market_size: "Medium", conference: "Western", division: "Mountain" },
+      { name: "Portland Fury", abbrev: "POR", market_size: "Medium", conference: "Western", division: "Pacific" },
+      { name: "Sacramento Sovereigns", abbrev: "SAC", market_size: "Small", conference: "Western", division: "Mountain" },
+      { name: "San Antonio Silver", abbrev: "SAS", market_size: "Medium", conference: "Western", division: "Southwest" },
+      { name: "San Diego Explorers", abbrev: "SDI", market_size: "Medium", conference: "Western", division: "Pacific" },
+      { name: "San Francisco Dynasty", abbrev: "SFD", market_size: "Large", conference: "Western", division: "Pacific" },
+      { name: "Seattle Tempests", abbrev: "SEA", market_size: "Medium", conference: "Western", division: "Pacific" },
+      { name: "Tampa Bay Raiders", abbrev: "TAM", market_size: "Small", conference: "Western", division: "Mountain" },
+      { name: "Toronto Legends", abbrev: "TOR", market_size: "Large", conference: "Eastern", division: "Atlantic" },
+      { name: "Washington Dynasty", abbrev: "WAS", market_size: "Medium", conference: "Eastern", division: "Atlantic" },
     ];
 
     function generatePlayersForTeams(teams, playersPerTeam = 8) {
@@ -2643,6 +2669,11 @@
           card.innerHTML = `
             <div class="team-name">${team.name}</div>
             <div class="team-abbrev">${team.abbrev}</div>
+            <div class="team-info">
+              <span>${team.market_size}</span>
+              <span>${team.division}</span>
+              <span>${team.conference}</span>
+            </div>
           `;
           
           card.addEventListener("click", () => {
@@ -2678,6 +2709,11 @@
           card.innerHTML = `
             <div class="managed-team-label">${team.name}</div>
             <div class="managed-team-abbrev">${team.abbrev}</div>
+            <div class="managed-team-info">
+              <span>${team.market_size}</span>
+              <span>${team.division}</span>
+              <span>${team.conference}</span>
+            </div>
           `;
           
           card.addEventListener("click", () => {
