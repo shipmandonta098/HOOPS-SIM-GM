@@ -1199,7 +1199,7 @@
      *   v0: Original - implicit version if schemaVersion missing
      *   v1: Core structure (meta, teams, players, log)
      **********************/
-    const CURRENT_SCHEMA_VERSION = 2;
+    const CURRENT_SCHEMA_VERSION = 4;
     const inMemorySaves = [];
     const inMemoryLeagues = {};
 
@@ -1214,6 +1214,109 @@
     }
     function uuid() {
       return crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + "-" + randInt(1000, 9999);
+    }
+
+    // Bio generation data
+    const US_CITIES = [
+      "New York, NY", "Los Angeles, CA", "Chicago, IL", "Houston, TX", "Phoenix, AZ",
+      "Philadelphia, PA", "San Antonio, TX", "San Diego, CA", "Dallas, TX", "San Jose, CA",
+      "Austin, TX", "Jacksonville, FL", "Memphis, TN", "Boston, MA", "Nashville, TN",
+      "Baltimore, MD", "Louisville, KY", "Portland, OR", "Las Vegas, NV", "Detroit, MI",
+      "Oklahoma City, OK", "Albuquerque, NM", "Tucson, AZ", "Fresno, CA", "Mesa, AZ",
+      "Sacramento, CA", "Atlanta, GA", "Kansas City, MO", "Miami, FL", "Denver, CO",
+      "Minneapolis, MN", "Cleveland, OH", "New Orleans, LA", "Arlington, TX", "Bakersfield, CA",
+      "Tampa, FL", "Aurora, CO", "Anaheim, CA", "Santa Ana, CA", "Saint Louis, MO",
+      "Riverside, CA", "Corpus Christi, TX", "Pittsburgh, PA", "Lexington, KY", "Cincinnati, OH",
+      "Washington, DC", "Long Beach, CA", "Irvine, CA", "Stockton, CA", "Chula Vista, CA",
+      "Toledo, OH", "Plano, TX", "Norfolk, VA", "Garland, TX", "Laredo, TX",
+      "Chandler, AZ", "Chesapeake, VA", "Irving, TX", "Scottsdale, AZ", "Raleigh, NC"
+    ];
+
+    const INTERNATIONAL_CITIES = {
+      "Canada": ["Toronto, Ontario", "Vancouver, BC", "Montreal, Quebec", "Calgary, Alberta", "Ottawa, Ontario"],
+      "France": ["Paris", "Marseille", "Lyon", "Toulouse", "Nice"],
+      "Spain": ["Madrid", "Barcelona", "Valencia", "Seville", "Malaga"],
+      "Serbia": ["Belgrade", "Nis", "Novi Sad", "Zemun", "Vranje"],
+      "Slovenia": ["Ljubljana", "Maribor", "Celje", "Kranj", "Novo Mesto"],
+      "Lithuania": ["Vilnius", "Kaunas", "Klaipeda", "Siauliai", "Panevezys"],
+      "Australia": ["Sydney, NSW", "Melbourne, VIC", "Brisbane, QLD", "Perth, WA", "Adelaide, SA"],
+      "Nigeria": ["Lagos", "Abuja", "Kano", "Ibadan", "Benin City"],
+      "Argentina": ["Buenos Aires", "Cordoba", "Rosario", "Mendoza", "La Plata"],
+      "Brazil": ["Sao Paulo", "Rio de Janeiro", "Salvador", "Brasilia", "Fortaleza"]
+    };
+
+    const NCAA_COLLEGES = [
+      "Duke", "North Carolina", "Kentucky", "Kansas", "Louisville", "Michigan State",
+      "UCLA", "Georgetown", "Arizona", "Indiana", "Syracuse", "Florida",
+      "Texas", "Ohio State", "Villanova", "Maryland", "Virginia", "Gonzaga",
+      "Oklahoma", "Connecticut", "Providence", "Miami", "Memphis", "Marquette",
+      "Iowa State", "Creighton", "San Diego State", "Purdue", "Wisconsin", "Baylor",
+      "Texas Tech", "LSU", "Dayton", "VCU", "Temple", "Xavier",
+      "DePaul", "St. John's", "Western Kentucky", "Bradley", "Wichita State", "Northern Iowa"
+    ];
+
+    const INTL_ACADEMIES = [
+      "Mega Basket", "INSEP", "Sydney Institute", "Real Madrid Academy", "FC Barcelona Academy",
+      "Brose Bamberg", "Partizan Belgrade", "Olimpija Ljubljana", "BC Zalgiris",
+      "Virtus Bologna", "AEK Athens", "Fenerbahce", "CSKA Moscow", "Maccabi Tel Aviv"
+    ];
+
+    const ALT_PATHS = ["G League Ignite", "Overseas Academy", "Prep-to-Pro", "Independent"];
+
+    function randomFrom(arr) {
+      return arr[Math.floor(Math.random() * arr.length)];
+    }
+
+    function makeHeightWeightWingspan(pos) {
+      let heightIn, weightLb;
+      if (pos === "PG") {
+        heightIn = randInt(69, 76);
+        weightLb = randInt(160, 210);
+      } else if (pos === "SG") {
+        heightIn = randInt(73, 79);
+        weightLb = randInt(170, 225);
+      } else if (pos === "SF") {
+        heightIn = randInt(75, 82);
+        weightLb = randInt(190, 245);
+      } else if (pos === "PF") {
+        heightIn = randInt(78, 84);
+        weightLb = randInt(210, 265);
+      } else { // C
+        heightIn = randInt(81, 88);
+        weightLb = randInt(230, 290);
+      }
+      const wingspanIn = heightIn + randInt(2, 10);
+      return { heightIn, weightLb, wingspanIn };
+    }
+
+    function generateBio(pos) {
+      // Determine nationality: 70% USA, 30% International
+      const isUSA = Math.random() < 0.7;
+      let country, hometown, college;
+
+      if (isUSA) {
+        country = "USA";
+        hometown = randomFrom(US_CITIES);
+        // College choice for USA players: 80% NCAA, 20% alt paths
+        if (Math.random() < 0.8) {
+          college = randomFrom(NCAA_COLLEGES);
+        } else {
+          college = randomFrom(ALT_PATHS);
+        }
+      } else {
+        // International player
+        const countries = Object.keys(INTERNATIONAL_CITIES);
+        country = randomFrom(countries);
+        hometown = randomFrom(INTERNATIONAL_CITIES[country]);
+        // College choice for international: 60% generic "International", 40% specific academies
+        if (Math.random() < 0.6) {
+          college = "International";
+        } else {
+          college = randomFrom(INTL_ACADEMIES);
+        }
+      }
+
+      return { country, hometown, college };
     }
 
     // Generate SVG logo for a team
@@ -1345,11 +1448,37 @@
         const pot = clamp(ovr + randInt(-5, 12), 45, 95);
         const age = randInt(19, 34);
         const salary = randInt(2, 30) * 1_000_000;
+        const pos = positions[i % positions.length];
+        
+        // Generate realistic bio data by position
+        let heightIn, weightLb, wingspanIn;
+        if (pos === "PG") {
+          heightIn = randInt(69, 76);
+          weightLb = randInt(170, 210);
+        } else if (pos === "SG") {
+          heightIn = randInt(73, 79);
+          weightLb = randInt(190, 230);
+        } else if (pos === "SF") {
+          heightIn = randInt(75, 82);
+          weightLb = randInt(210, 250);
+        } else if (pos === "PF") {
+          heightIn = randInt(78, 84);
+          weightLb = randInt(230, 280);
+        } else { // C
+          heightIn = randInt(80, 88);
+          weightLb = randInt(250, 310);
+        }
+        wingspanIn = heightIn + randInt(2, 10);
+        
+        const draftYear = 2026 - (age - 19);
+        const draftRound = randInt(1, 2);
+        const draftPick = randInt(1, 30);
+        
         return {
           id: uuid(),
           firstName: n[0],
           lastName: n[1],
-          pos: positions[i % positions.length],
+          pos,
           age,
           teamId: team.id,
           ovr,
@@ -1357,7 +1486,18 @@
           salary,
           mood: randInt(40, 90),
           stamina: randInt(70, 100),
-          stats: { gp: 0, pts: 0, reb: 0, ast: 0 }
+          stats: { gp: 0, pts: 0, reb: 0, ast: 0 },
+          // Bio fields
+          heightIn,
+          weightLb,
+          wingspanIn,
+          ...generateBio(pos),
+          draftYear,
+          draftRound,
+          draftPick,
+          draftedByTid: team.id,
+          // Contract
+          contract: { amount: salary, years: randInt(2, 5), startSeason: draftYear + 1 }
         };
       });
 
@@ -1435,9 +1575,117 @@
             console.log("[Migration] ✓ v1 → v2 complete");
           
           } else if (v === 2) {
-            // v2 → v3: placeholder for future migration
-            console.log("[Migration] Already at latest schema version");
-            break;
+            // v2 → v3: Add player bio and contract fields
+            console.log("[Migration] Applying v2 → v3: Adding player bio and contract fields");
+            
+            const positions = ["PG", "SG", "SF", "PF", "C"];
+            league.players = league.players || [];
+            
+            league.players.forEach(player => {
+              // Default bio fields if missing
+              if (!player.heightIn) {
+                const pos = player.pos || "SF";
+                let heightIn, weightLb;
+                if (pos === "PG") {
+                  heightIn = randInt(69, 76);
+                  weightLb = randInt(170, 210);
+                } else if (pos === "SG") {
+                  heightIn = randInt(73, 79);
+                  weightLb = randInt(190, 230);
+                } else if (pos === "SF") {
+                  heightIn = randInt(75, 82);
+                  weightLb = randInt(210, 250);
+                } else if (pos === "PF") {
+                  heightIn = randInt(78, 84);
+                  weightLb = randInt(230, 280);
+                } else { // C
+                  heightIn = randInt(80, 88);
+                  weightLb = randInt(250, 310);
+                }
+                player.heightIn = heightIn;
+                player.weightLb = weightLb;
+                player.wingspanIn = heightIn + randInt(2, 10);
+              }
+              player.hometown = player.hometown || "Unknown";
+              player.country = player.country || "USA";
+              player.college = player.college || "International";
+              
+              // Default draft fields if missing
+              if (!player.draftYear) {
+                const draftYear = league.meta.season - (player.age - 19);
+                player.draftYear = draftYear;
+                player.draftRound = player.draftRound || randInt(1, 2);
+                player.draftPick = player.draftPick || randInt(1, 30);
+                player.draftedByTid = player.draftedByTid || player.teamId;
+              }
+              
+              // Default contract if missing
+              if (!player.contract) {
+                player.contract = {
+                  amount: player.salary || 0,
+                  years: randInt(2, 5),
+                  startSeason: (league.meta.season || 2026) - 2
+                };
+              }
+            });
+            
+            v = 3;
+            league.schemaVersion = 3;
+            console.log("[Migration] ✓ v2 → v3 complete");
+          
+          } else if (v === 3) {
+            // v3 → v4: Backfill placeholder bios with realistic data
+            console.log("[Migration] Applying v3 → v4: Backfilling placeholder bios with realistic data");
+            
+            league.players = league.players || [];
+            
+            league.players.forEach(player => {
+              // Determine if this player has a placeholder bio that needs replacement
+              const hasPlaceholderHometown = !player.hometown || player.hometown === "Unknown";
+              const hasPlaceholderCollege = !player.college || player.college === "International";
+              const hasPlaceholderCountry = !player.country || player.country === "USA";
+              
+              // Replace if: hometown is missing/Unknown OR college is missing/International
+              // OR country is missing (conservative replacement strategy)
+              if (hasPlaceholderHometown || hasPlaceholderCollege || (!player.country)) {
+                const bio = generateBio(player.pos || "SF");
+                player.hometown = bio.hometown;
+                player.country = bio.country;
+                player.college = bio.college;
+              }
+              
+              // Ensure physical attributes exist and are reasonable
+              if (!player.heightIn || player.heightIn === 0) {
+                const phys = makeHeightWeightWingspan(player.pos || "SF");
+                player.heightIn = phys.heightIn;
+                player.weightLb = phys.weightLb;
+                player.wingspanIn = phys.wingspanIn;
+              } else if (!player.weightLb || player.weightLb === 0) {
+                const phys = makeHeightWeightWingspan(player.pos || "SF");
+                player.weightLb = phys.weightLb;
+              }
+              if (!player.wingspanIn || player.wingspanIn === 0) {
+                player.wingspanIn = player.heightIn + randInt(2, 10);
+              }
+              
+              // Ensure draft info exists
+              if (!player.draftYear || player.draftYear === 0) {
+                player.draftYear = league.meta.season - (player.age - 19);
+              }
+              if (!player.draftRound || player.draftRound === 0) {
+                player.draftRound = randInt(1, 2);
+              }
+              if (!player.draftPick || player.draftPick === 0) {
+                player.draftPick = randInt(1, 30);
+              }
+              if (!player.draftedByTid) {
+                player.draftedByTid = player.teamId;
+              }
+            });
+            
+            v = 4;
+            league.schemaVersion = 4;
+            console.log("[Migration] ✓ v3 → v4 complete");
           }
           
           else {
@@ -1727,7 +1975,11 @@
       selectedTeamId: null,
       selectedPlayerId: null,
       userTeamId: null,
-      saves: []
+      saves: [],
+      ui: {
+        playerModalOpen: false,
+        playerModalId: null
+      }
     };
 
     function setSaveStatus(text) {
@@ -1952,6 +2204,153 @@
     }
     function teamById(id) {
       return state.league.teams.find(t => t.id === id);
+    }
+    
+    function playerById(id) {
+      return state.league.players.find(p => p.id === id);
+    }
+
+    // Player modal helpers
+    function openPlayerModal(playerId) {
+      state.ui.playerModalOpen = true;
+      state.ui.playerModalId = playerId;
+      render();
+    }
+
+    function closePlayerModal() {
+      state.ui.playerModalOpen = false;
+      state.ui.playerModalId = null;
+      render();
+    }
+
+    // Format player bio data
+    function formatHeight(inches) {
+      const feet = Math.floor(inches / 12);
+      const in_remainder = inches % 12;
+      return `${feet}'${in_remainder}"`;
+    }
+
+    function getPlayerContractInfo(player) {
+      const contract = player.contract || { amount: player.salary, years: 3, startSeason: state.league.meta.season - 1 };
+      const currentSeason = state.league.meta.season;
+      const startYear = contract.startSeason;
+      const endYear = startYear + contract.years - 1;
+      const yearsRemaining = Math.max(0, endYear - currentSeason + 1);
+      const totalValue = contract.amount * contract.years;
+      
+      return {
+        annualSalary: contract.amount,
+        totalValue,
+        yearsRemaining,
+        startYear,
+        endYear
+      };
+    }
+
+    // Player detail modal view
+    function viewPlayerModal(playerId) {
+      const player = playerById(playerId);
+      if (!player) return '';
+      
+      const team = teamById(player.teamId);
+      const draftedByTeam = teamById(player.draftedByTid);
+      const contractInfo = getPlayerContractInfo(player);
+      
+      return `
+        <div id="playerModalBackdrop" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); z-index: 9998; cursor: pointer;"></div>
+        <div id="playerModal" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; max-width: 500px; max-height: 90vh; background: #0d1117; border: 1px solid #60a5fa; border-radius: 8px; box-shadow: 0 20px 60px rgba(0,0,0,0.8); z-index: 9999; overflow-y: auto; padding: 24px;">
+          
+          <!-- Close button -->
+          <button id="playerModalClose" style="position: absolute; top: 16px; right: 16px; background: none; border: none; color: #60a5fa; font-size: 28px; cursor: pointer; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">✕</button>
+          
+          <!-- Header -->
+          <div style="margin-bottom: 24px;">
+            <div style="display: flex; align-items: baseline; gap: 12px; margin-bottom: 8px;">
+              <h2 style="font-size: 32px; font-weight: 700; margin: 0; color: #fff;">${escapeHtml(playerName(player))}</h2>
+              <span style="font-size: 14px; color: #888;">${player.pos} • Age ${player.age}</span>
+            </div>
+            <div style="display: flex; gap: 32px; margin-top: 16px;">
+              <div style="background: rgba(96,165,250,0.1); border: 1px solid #60a5fa; border-radius: 8px; padding: 12px 16px; text-align: center;">
+                <div style="font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 1px;">Overall</div>
+                <div style="font-size: 32px; font-weight: 700; color: #60a5fa;">${player.ovr}</div>
+              </div>
+              <div style="background: rgba(52,211,153,0.1); border: 1px solid #34d399; border-radius: 8px; padding: 12px 16px; text-align: center;">
+                <div style="font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 1px;">Potential</div>
+                <div style="font-size: 32px; font-weight: 700; color: #34d399;">${player.pot}</div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Player Bio Card -->
+          <div style="background: rgba(96,165,250,0.05); border: 1px solid rgba(96,165,250,0.2); border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+            <h3 style="font-size: 14px; font-weight: 600; color: #60a5fa; text-transform: uppercase; letter-spacing: 1px; margin: 0 0 12px 0;">Player Bio</h3>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 12px; font-size: 13px;">
+              <div>
+                <div style="color: #888; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Height</div>
+                <div style="color: #fff; font-weight: 500;">${formatHeight(player.heightIn || 78)}</div>
+              </div>
+              <div>
+                <div style="color: #888; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Weight</div>
+                <div style="color: #fff; font-weight: 500;">${player.weightLb || 220} lbs</div>
+              </div>
+              <div>
+                <div style="color: #888; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Wingspan</div>
+                <div style="color: #fff; font-weight: 500;">${formatHeight(player.wingspanIn || 80)}</div>
+              </div>
+            </div>
+            
+            <div style="color: #ccc; font-size: 13px; margin-bottom: 8px;">
+              <span style="color: #888;">Hometown:</span> <strong>${escapeHtml(player.hometown || 'Unknown')}</strong>
+            </div>
+            <div style="color: #ccc; font-size: 13px; margin-bottom: 8px;">
+              <span style="color: #888;">Country:</span> <strong>${escapeHtml(player.country || 'USA')}</strong>
+            </div>
+            <div style="color: #ccc; font-size: 13px; margin-bottom: 8px;">
+              <span style="color: #888;">College:</span> <strong>${escapeHtml(player.college || 'International')}</strong>
+            </div>
+            
+            <div style="color: #ccc; font-size: 13px; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(96,165,250,0.1);">
+              <span style="color: #888;">Draft:</span> <strong>${player.draftYear || 'N/A'}</strong> • 
+              <strong>Round ${player.draftRound || '–'}</strong> • 
+              <strong>Pick ${player.draftPick || '–'}</strong>
+            </div>
+            ${draftedByTeam ? `
+              <div style="color: #ccc; font-size: 13px;">
+                Drafted by <strong>${escapeHtml(draftedByTeam.name)}</strong>
+              </div>
+            ` : ''}
+          </div>
+          
+          <!-- Contract Card -->
+          <div style="background: rgba(52,211,153,0.05); border: 1px solid rgba(52,211,153,0.2); border-radius: 8px; padding: 16px;">
+            <h3 style="font-size: 14px; font-weight: 600; color: #34d399; text-transform: uppercase; letter-spacing: 1px; margin: 0 0 12px 0;">Contract</h3>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; font-size: 13px;">
+              <div>
+                <div style="color: #888; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Annual Salary</div>
+                <div style="color: #34d399; font-weight: 600;">${money(contractInfo.annualSalary)}</div>
+              </div>
+              <div>
+                <div style="color: #888; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Total Value</div>
+                <div style="color: #34d399; font-weight: 600;">${money(contractInfo.totalValue)}</div>
+              </div>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 13px;">
+              <div>
+                <div style="color: #888; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Years Remaining</div>
+                <div style="color: #fff; font-weight: 500;">${contractInfo.yearsRemaining}</div>
+              </div>
+              <div>
+                <div style="color: #888; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Contract Period</div>
+                <div style="color: #fff; font-weight: 500;">${contractInfo.startYear} - ${contractInfo.endYear}</div>
+              </div>
+            </div>
+          </div>
+          
+        </div>
+      `;
     }
 
     function viewHome() {
@@ -2326,7 +2725,7 @@
             ${roster.map((p, idx) => `
               <tr style="border-bottom: 1px solid var(--line); ${idx % 2 === 0 ? 'background-color: rgba(15,23,42,.6);' : ''}">
                 <td style="padding: 10px 8px; text-align: left;">
-                  <span class="click" onclick="selectPlayerFromTeams('${p.id}')" style="cursor: pointer;">${escapeHtml(playerName(p))}</span>
+                  <span class="click" data-player-id="${p.id}" style="cursor: pointer;">${escapeHtml(playerName(p))}</span>
                 </td>
                 <td style="padding: 10px 8px; text-align: center; font-size: 12px;">${p.pos}</td>
                 <td style="padding: 10px 8px; text-align: center; font-size: 12px;">${p.age}</td>
@@ -2368,7 +2767,7 @@
               <tbody>
                 ${roster.map(p => `
                   <tr>
-                    <td><span class="click" data-player="${p.id}">${escapeHtml(playerName(p))}</span></td>
+                    <td><span class="click" data-player-id="${p.id}" style="cursor: pointer;">${escapeHtml(playerName(p))}</span></td>
                     <td>${p.pos}</td>
                     <td>${p.age}</td>
                     <td>${p.ovr}</td>
@@ -2405,7 +2804,7 @@
                     const logoSvg = t.color ? generateTeamLogo(t.abbrev, t.color, 20) : '';
                     return `
                       <tr>
-                        <td><span class="click" data-player="${p.id}">${escapeHtml(playerName(p))}</span></td>
+                        <td><span class="click" data-player-id="${p.id}" style="cursor: pointer;">${escapeHtml(playerName(p))}</span></td>
                         <td><span>${logoSvg}</span> ${escapeHtml(t.name)} <span class="tag">${t.abbrev}</span></td>
                         <td>${p.pos}</td>
                         <td>${p.age}</td>
@@ -2544,7 +2943,7 @@
                   <tbody>
                     ${topPlayers.map((p, idx) => `
                       <tr style="border-bottom: 1px solid #1f2937; padding: 8px 0;">
-                        <td style="padding: 8px 0;"><strong>${idx + 1}. ${escapeHtml(playerName(p))}</strong></td>
+                        <td style="padding: 8px 0;"><strong data-player-id="${p.id}" style="cursor: pointer;">${idx + 1}. ${escapeHtml(playerName(p))}</strong></td>
                         <td style="text-align: right; padding: 8px 0;"><span class="hint">${p.pos}</span></td>
                         <td style="text-align: right; padding: 8px 0; padding-left: 16px;"><strong>${p.ovr}</strong> OVR</td>
                         <td style="text-align: right; padding: 8px 0; padding-left: 16px;"><span class="hint">${p.stats.pts} PTS</span></td>
@@ -2842,6 +3241,46 @@
           }
         });
       }
+
+      // Player Detail Modal
+      if (state.ui.playerModalOpen && state.ui.playerModalId) {
+        const modalRoot = document.createElement("div");
+        modalRoot.id = "playerModalRoot";
+        modalRoot.innerHTML = viewPlayerModal(state.ui.playerModalId);
+        document.body.appendChild(modalRoot);
+
+        // Close button
+        const closeBtn = document.getElementById("playerModalClose");
+        if (closeBtn) {
+          closeBtn.addEventListener("click", closePlayerModal);
+        }
+
+        // Backdrop click
+        const backdrop = document.getElementById("playerModalBackdrop");
+        if (backdrop) {
+          backdrop.addEventListener("click", closePlayerModal);
+        }
+      } else {
+        // Remove modal if it's open
+        const modalRoot = document.getElementById("playerModalRoot");
+        if (modalRoot) modalRoot.remove();
+      }
+
+      // Player click handlers (any element with data-player-id)
+      view.querySelectorAll("[data-player-id]").forEach(el => {
+        el.addEventListener("click", (e) => {
+          e.stopPropagation();
+          openPlayerModal(el.dataset.playerId);
+        });
+      });
+
+      // Escape key closes modal
+      const handleEscape = (e) => {
+        if (e.key === "Escape" && state.ui.playerModalOpen) {
+          closePlayerModal();
+        }
+      };
+      document.addEventListener("keydown", handleEscape);
     }
 
     // Home screen event handlers
