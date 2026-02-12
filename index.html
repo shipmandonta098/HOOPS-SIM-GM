@@ -2789,6 +2789,22 @@
       }
     }
 
+    function hideAllMenus() {
+      const titleElem = document.getElementById("titleScreen");
+      const foElem = document.getElementById("frontOfficeMenu");
+      const clElem = document.getElementById("createLeagueModal");
+      
+      [titleElem, foElem, clElem].forEach(elem => {
+        if (elem) {
+          elem.classList.add("hidden");
+          elem.style.display = "none";
+        }
+      });
+      
+      const app = document.querySelector(".app");
+      if (app) app.classList.remove("in-startup-menu");
+    }
+
     // Initialization
     (async () => {
       // Check if user wants to skip title screen
@@ -2909,21 +2925,6 @@
         
         const leagueSizeError = document.getElementById("leagueSizeError");
         if (leagueSizeError) leagueSizeError.style.display = "none";
-      }
-
-      function hideAllMenus() {
-        const titleElem = document.getElementById("titleScreen");
-        const foElem = document.getElementById("frontOfficeMenu");
-        const clElem = document.getElementById("createLeagueModal");
-        
-        [titleElem, foElem, clElem].forEach(elem => {
-          if (elem) {
-            elem.classList.add("hidden");
-            elem.style.display = "none";
-          }
-        });
-        
-        if (app) app.classList.remove("in-startup-menu");
       }
 
       function updateFrontOfficePreview() {
