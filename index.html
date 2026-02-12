@@ -1710,6 +1710,7 @@
       currentSaveId: null,
       selectedTeamId: null,
       selectedPlayerId: null,
+      userTeamId: null,
       saves: []
     };
 
@@ -1786,6 +1787,56 @@
 
       top.forEach(p => addLine(p));
       others.slice(0, 2).forEach(p => addLine(p));
+    }
+
+    // Team Dashboard Helper Functions
+    function getTeamOffenseRating(teamId) {
+      const roster = state.league.players.filter(p => p.teamId === teamId);
+      if (roster.length === 0) return 0;
+      return Math.round(roster.reduce((s, p) => s + p.ovr, 0) / roster.length);
+    }
+
+    function getTeamDefenseRating(teamId) {
+      // Simple model: average OVR with position bonus
+      const roster = state.league.players.filter(p => p.teamId === teamId);
+      if (roster.length === 0) return 0;
+      let defensiveOVR = 0;
+      roster.forEach(p => {
+        // Big men worth more on defense
+        let posBonus = (p.pos === "PF" || p.pos === "C") ? 1.1 : 0.9;
+        defensiveOVR += p.ovr * posBonus;
+      });
+      return Math.round(defensiveOVR / roster.length);
+    }
+
+    function getTeamOverallRating(teamId) {
+      // Average of top 3 players (weighted differently)
+      const roster = state.league.players.filter(p => p.teamId === teamId).sort((a, b) => b.ovr - a.ovr);
+      if (roster.length === 0) return 0;
+      const top3 = roster.slice(0, 3);
+      return Math.round(top3.reduce((s, p) => s + p.ovr, 0) / top3.length);
+    }
+
+    function getTeamSalaryInfo(teamId) {
+      const roster = state.league.players.filter(p => p.teamId === teamId);
+      const totalSalary = roster.reduce((s, p) => s + p.salary, 0);
+      const capLimit = 120_000_000; // 120M default cap
+      const capRoom = capLimit - totalSalary;
+      return { totalSalary, capLimit, capRoom, isOverCap: capRoom < 0 };
+    }
+
+    function getTeamPowerRank(teamId) {
+      const teams = [...state.league.teams];
+      const sorted = teams.map(t => ({ ...t, power: teamPower(t.id) })).sort((a, b) => b.power - a.power);
+      const rank = sorted.findIndex(t => t.id === teamId) + 1;
+      return `#${rank} of ${teams.length}`;
+    }
+
+    function getTopTeamPlayers(teamId, count = 3) {
+      return state.league.players
+        .filter(p => p.teamId === teamId)
+        .sort((a, b) => b.ovr - a.ovr)
+        .slice(0, count);
     }
 
     function simDay() {
@@ -2220,6 +2271,137 @@
       `;
     }
 
+    function viewTeamDashboard() {
+      if (!state.league || !state.userTeamId) {
+        return `<div class="card"><div class="bd"><span class="muted">Team not loaded.</span></div></div>`;
+      }
+
+      const team = teamById(state.userTeamId);
+      if (!team) {
+        return `<div class="card"><div class="bd"><span class="muted">Team not found.</span></div></div>`;
+      }
+
+      const logoSvg = team.color ? generateTeamLogo(team.abbrev, team.color, 40) : '';
+      const record = `${team.wins}–${team.losses}`;
+      const powerRank = getTeamPowerRank(state.userTeamId);
+      const offenseRating = getTeamOffenseRating(state.userTeamId);
+      const defenseRating = getTeamDefenseRating(state.userTeamId);
+      const overallRating = getTeamOverallRating(state.userTeamId);
+      const salaryInfo = getTeamSalaryInfo(state.userTeamId);
+      const topPlayers = getTopTeamPlayers(state.userTeamId, 3);
+
+      return `
+        <div class="grid">
+          <!-- Team Header -->
+          <div class="card" style="grid-column: 1 / -1;">
+            <div class="hd">
+              <div style="display: flex; align-items: center; gap: 16px;">
+                <div>${logoSvg}</div>
+                <div>
+                  <h2>${escapeHtml(team.name)}</h2>
+                  <div class="hint">${team.abbrev} · ${team.conference} · ${team.division}</div>
+                </div>
+                <div style="margin-left: auto; text-align: right;">
+                  <div style="font-size: 24px; font-weight: bold; color: #60a5fa;">${record}</div>
+                  <div class="hint">Record</div>
+                </div>
+                <div style="text-align: right; padding-left: 24px;">
+                  <div style="font-size: 24px; font-weight: bold; color: #34d399;">${powerRank}</div>
+                  <div class="hint">Power Ranking</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Team Ratings -->
+          <div class="card">
+            <div class="hd"><h3>Team Ratings</h3></div>
+            <div class="bd">
+              <div class="kpis">
+                <div class="kpi"><div class="label">Offense</div><div class="value">${offenseRating}</div><div class="delta">Avg OVR</div></div>
+                <div class="kpi"><div class="label">Defense</div><div class="value">${defenseRating}</div><div class="delta">Positional</div></div>
+                <div class="kpi"><div class="label">Overall</div><div class="value">${overallRating}</div><div class="delta">Top 3 Avg</div></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Salary Cap -->
+          <div class="card">
+            <div class="hd"><h3>Salary Cap</h3></div>
+            <div class="bd">
+              <div style="margin-bottom: 12px;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+                  <span>${money(salaryInfo.totalSalary)}</span>
+                  <span class="hint">${money(salaryInfo.capLimit)} Cap</span>
+                </div>
+                <div style="width: 100%; height: 8px; background: #111827; border-radius: 4px; overflow: hidden;">
+                  <div style="width: ${Math.min(100, (salaryInfo.totalSalary / salaryInfo.capLimit) * 100)}%; height: 100%; background: ${salaryInfo.isOverCap ? '#ef4444' : '#34d399'};"></div>
+                </div>
+              </div>
+              <div style="text-align: center; font-size: 12px; color: ${salaryInfo.isOverCap ? '#ef4444' : '#34d399'};">
+                ${salaryInfo.isOverCap ? `Over cap by ${money(-salaryInfo.capRoom)}` : `${money(salaryInfo.capRoom)} room`}
+              </div>
+            </div>
+          </div>
+
+          <!-- Top Players -->
+          <div class="card">
+            <div class="hd"><h3>Top Players</h3></div>
+            <div class="bd">
+              ${topPlayers.length === 0 ? `<span class="muted">No players on roster.</span>` : `
+                <table style="width: 100%;">
+                  <tbody>
+                    ${topPlayers.map((p, idx) => `
+                      <tr style="border-bottom: 1px solid #1f2937; padding: 8px 0;">
+                        <td style="padding: 8px 0;"><strong>${idx + 1}. ${escapeHtml(playerName(p))}</strong></td>
+                        <td style="text-align: right; padding: 8px 0;"><span class="hint">${p.pos}</span></td>
+                        <td style="text-align: right; padding: 8px 0; padding-left: 16px;"><strong>${p.ovr}</strong> OVR</td>
+                        <td style="text-align: right; padding: 8px 0; padding-left: 16px;"><span class="hint">${p.stats.pts} PTS</span></td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              `}
+            </div>
+          </div>
+
+          <!-- Next Game / Actions -->
+          <div class="card">
+            <div class="hd"><h3>Actions</h3></div>
+            <div class="bd">
+              <button id="simDayBtn" class="btn" style="width: 100%; padding: 12px; font-size: 14px;">
+                ▶ Simulate Next Day
+              </button>
+            </div>
+          </div>
+
+          <!-- Alerts -->
+          <div class="card" style="grid-column: 1 / -1;">
+            <div class="hd"><h3>Alerts</h3></div>
+            <div class="bd">
+              ${salaryInfo.isOverCap ? `
+                <div style="padding: 8px; background: #7f1d1d; border-left: 3px solid #ef4444; margin-bottom: 8px; border-radius: 2px;">
+                  <strong style="color: #fca5a5;">Over Salary Cap</strong><br/>
+                  <span class="hint">You are ${money(-salaryInfo.capRoom)} over the cap. Consider trades or releasing players.</span>
+                </div>
+              ` : ''}
+              ${salaryInfo.capRoom < 5_000_000 ? `
+                <div style="padding: 8px; background: #78350f; border-left: 3px solid #f59e0b; margin-bottom: 8px; border-radius: 2px;">
+                  <strong style="color: #fcd34d;">Low Salary Cap Room</strong><br/>
+                  <span class="hint">Only ${money(salaryInfo.capRoom)} cap room remaining.</span>
+                </div>
+              ` : ''}
+              ${salaryInfo.isOverCap || salaryInfo.capRoom < 5_000_000 ? '' : `
+                <div style="padding: 8px; color: #34d399; text-align: center; font-size: 12px;">
+                  ✓ No salary alerts
+                </div>
+              `}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
     /**********************
      * 8) Rendering + Router
      **********************/
@@ -2255,6 +2437,7 @@
         else if (state.route === "league") view.innerHTML = viewLeague();
         else if (state.route === "teams") view.innerHTML = viewTeams();
         else if (state.route === "players") view.innerHTML = viewPlayers();
+        else if (state.route === "team") view.innerHTML = viewTeamDashboard();
         else view.innerHTML = `<div class="card"><div class="bd">Unknown route.</div></div>`;
       }
 
@@ -2282,6 +2465,17 @@
           setRoute("players");
         });
       });
+
+      // Team Dashboard - Sim Day button
+      const simDayBtn = document.getElementById("simDayBtn");
+      if (simDayBtn) {
+        simDayBtn.addEventListener("click", async () => {
+          simDay();
+          await saveCurrentLeague();
+          render();
+          showBanner("success", "✓ Day simulated");
+        });
+      }
     }
 
     // Home screen event handlers
@@ -2326,6 +2520,7 @@
         if (league) {
           state.league = league;
           state.currentSaveId = newId;
+          state.userTeamId = league.meta?.managedTeamId || null;
           setSaveStatus("Loaded");
           render();
           await refillSavesList();
@@ -2499,6 +2694,7 @@
       if (league) {
         state.league = league;
         state.currentSaveId = saveId;
+        state.userTeamId = league.meta?.managedTeamId || null;
         setSaveStatus("Loaded");
         hideAllMenus();
         setRoute("home");
@@ -2578,7 +2774,7 @@
     // Hash routing
     window.addEventListener("hashchange", () => {
       const route = (location.hash || "#home").replace("#","").trim();
-      const known = ["home","dashboard","league","teams","players"];
+      const known = ["home","dashboard","league","teams","players","team"];
       setRoute(known.includes(route) ? route : "home");
     });
 
@@ -3087,7 +3283,8 @@
 
             await refillSavesList();
             hideAllMenus();
-            setRoute("home");
+            state.userTeamId = managedTeam ? managedTeam.id : null;
+            setRoute("team");
             showBanner("success", `✓ League "${name}" created with ${leagueSize} teams!`);
           }
         });
