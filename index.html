@@ -1401,6 +1401,7 @@
             league.meta.season = league.meta.season || 2026;
             league.meta.day = league.meta.day || 1;
             league.meta.phase = league.meta.phase || "REGULAR_SEASON";
+            league.meta.userTeamId = league.meta.userTeamId || null;
             
             league.teams = league.teams || [];
             league.players = league.players || [];
@@ -2433,11 +2434,14 @@
         document.getElementById("seasonLabel").textContent = `Season ${meta.season}`;
         document.getElementById("subTitle").textContent = `${meta.name.toLowerCase()} · v0.1`;
         
-        if (state.route === "dashboard") view.innerHTML = viewDashboard();
+        if (state.route === "dashboard") {
+          // Show Team Dashboard if a managed team is set, otherwise show league dashboard
+          if (state.userTeamId) view.innerHTML = viewTeamDashboard();
+          else view.innerHTML = viewDashboard();
+        }
         else if (state.route === "league") view.innerHTML = viewLeague();
         else if (state.route === "teams") view.innerHTML = viewTeams();
         else if (state.route === "players") view.innerHTML = viewPlayers();
-        else if (state.route === "team") view.innerHTML = viewTeamDashboard();
         else view.innerHTML = `<div class="card"><div class="bd">Unknown route.</div></div>`;
       }
 
@@ -2694,7 +2698,7 @@
       if (league) {
         state.league = league;
         state.currentSaveId = saveId;
-        state.userTeamId = league.meta?.managedTeamId || null;
+        state.userTeamId = league.meta?.userTeamId || null;
         setSaveStatus("Loaded");
         hideAllMenus();
         setRoute("home");
@@ -2774,7 +2778,7 @@
     // Hash routing
     window.addEventListener("hashchange", () => {
       const route = (location.hash || "#home").replace("#","").trim();
-      const known = ["home","dashboard","league","teams","players","team"];
+      const known = ["home","dashboard","league","teams","players"];
       setRoute(known.includes(route) ? route : "home");
     });
 
@@ -2831,6 +2835,7 @@
         if (league) {
           state.league = league;
           state.currentSaveId = lastId;
+          state.userTeamId = league.meta?.userTeamId || null;
           setSaveStatus("Loaded");
         }
       } else if (saves.length > 0) {
@@ -2840,6 +2845,7 @@
         if (league) {
           state.league = league;
           state.currentSaveId = saves[0].id;
+          state.userTeamId = league.meta?.userTeamId || null;
           setSaveStatus("Loaded");
         }
       }
@@ -3285,7 +3291,7 @@
             await refillSavesList();
             hideAllMenus();
             state.userTeamId = managedTeam ? managedTeam.id : null;
-            setRoute("team");
+            setRoute("dashboard");
             showBanner("success", `✓ League "${name}" created with ${leagueSize} teams!`);
           }
         });
