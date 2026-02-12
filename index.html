@@ -1106,6 +1106,7 @@
         <a href="#home" data-route="home" class="active"><span>🎮 Home</span><span>›</span></a>
         <a href="#dashboard" data-route="dashboard"><span>🏠 Dashboard</span><span>›</span></a>
         <a href="#league" data-route="league"><span>🌍 League</span><span>›</span></a>
+        <a href="#standings" data-route="standings"><span>📊 Standings</span><span>›</span></a>
         <a href="#teams" data-route="teams"><span>🏟️ Teams</span><span>›</span></a>
         <a href="#players" data-route="players"><span>🧑‍🦱 Players</span><span>›</span></a>
       </div>
@@ -1198,7 +1199,7 @@
      *   v0: Original - implicit version if schemaVersion missing
      *   v1: Core structure (meta, teams, players, log)
      **********************/
-    const CURRENT_SCHEMA_VERSION = 1;
+    const CURRENT_SCHEMA_VERSION = 2;
     const inMemorySaves = [];
     const inMemoryLeagues = {};
 
@@ -1324,10 +1325,10 @@
 
     function defaultLeague() {
       const teams = [
-        { id: uuid(), name: "New York Knights", abbrev: "NYK", wins: 0, losses: 0, cash: 50_000_000 },
-        { id: uuid(), name: "Chicago Comets",  abbrev: "CHI", wins: 0, losses: 0, cash: 50_000_000 },
-        { id: uuid(), name: "LA Starlight",    abbrev: "LAS", wins: 0, losses: 0, cash: 50_000_000 },
-        { id: uuid(), name: "Miami Tide",      abbrev: "MIA", wins: 0, losses: 0, cash: 50_000_000 },
+        { id: uuid(), name: "New York Knights", abbrev: "NYK", wins: 0, losses: 0, cash: 50_000_000, conf: "East", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
+        { id: uuid(), name: "Chicago Comets",  abbrev: "CHI", wins: 0, losses: 0, cash: 50_000_000, conf: "West", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
+        { id: uuid(), name: "LA Starlight",    abbrev: "LAS", wins: 0, losses: 0, cash: 50_000_000, conf: "West", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
+        { id: uuid(), name: "Miami Tide",      abbrev: "MIA", wins: 0, losses: 0, cash: 50_000_000, conf: "East", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
       ];
 
       const names = [
@@ -1410,20 +1411,34 @@
             v = 1;
             league.schemaVersion = 1;
             console.log("[Migration] ✓ v0 → v1 complete");
-          }
           
-          // Add future migrations here:
-          // } else if (v === 1) {
-          //   // v1 → v2: example future migration
-          //   console.log("[Migration] Applying v1 → v2");
-          //   v = 2;
-          //   league.schemaVersion = 2;
-          // } else if (v === 2) {
-          //   // v2 → v3: another future migration
-          //   console.log("[Migration] Applying v2 → v3");
-          //   v = 3;
-          //   league.schemaVersion = 3;
-          // }
+          } else if (v === 1) {
+            // v1 → v2: Add team tracking fields for standings
+            console.log("[Migration] Applying v1 → v2: Adding team tracking fields");
+            
+            league.teams.forEach((team, idx) => {
+              // Assign conferences: first half East, second half West
+              team.conf = idx < Math.ceil(league.teams.length / 2) ? "East" : "West";
+              team.confWins = team.confWins || 0;
+              team.confLosses = team.confLosses || 0;
+              team.homeWins = team.homeWins || 0;
+              team.homeLosses = team.homeLosses || 0;
+              team.roadWins = team.roadWins || 0;
+              team.roadLosses = team.roadLosses || 0;
+              team.last10 = team.last10 || [];
+              team.streakType = team.streakType || "—";
+              team.streakLen = team.streakLen || 0;
+            });
+            
+            v = 2;
+            league.schemaVersion = 2;
+            console.log("[Migration] ✓ v1 → v2 complete");
+          
+          } else if (v === 2) {
+            // v2 → v3: placeholder for future migration
+            console.log("[Migration] Already at latest schema version");
+            break;
+          }
           
           else {
             // Safety: if we encounter an unknown version, log and break
@@ -1747,21 +1762,62 @@
       return (topAvg * 0.65) + (restAvg * 0.35);
     }
 
-    function simulateOneGame(teamA, teamB) {
-      const aPow = teamPower(teamA.id) + randInt(-6, 6);
-      const bPow = teamPower(teamB.id) + randInt(-6, 6);
+    function simulateOneGame(teamHome, teamAway) {
+      const aPow = teamPower(teamHome.id) + randInt(-6, 6);
+      const bPow = teamPower(teamAway.id) + randInt(-6, 6);
       const aPts = clamp(Math.round(95 + (aPow - 60) * 1.2 + randInt(-10, 10)), 70, 145);
       const bPts = clamp(Math.round(95 + (bPow - 60) * 1.2 + randInt(-10, 10)), 70, 145);
 
-      let winner = teamA, loser = teamB, wPts = aPts, lPts = bPts;
-      if (bPts > aPts) { winner = teamB; loser = teamA; wPts = bPts; lPts = aPts; }
+      let winner = teamHome, loser = teamAway, wPts = aPts, lPts = bPts;
+      let homeWon = true; // Track if home team won
+      if (bPts > aPts) { winner = teamAway; loser = teamHome; wPts = bPts; lPts = aPts; homeWon = false; }
       if (bPts === aPts) {
-        if (Math.random() < 0.5) { winner = teamB; loser = teamA; wPts = bPts + 1; lPts = aPts; }
-        else { wPts = aPts + 1; lPts = bPts; }
+        if (Math.random() < 0.5) { winner = teamAway; loser = teamHome; wPts = bPts + 1; lPts = aPts; homeWon = false; }
+        else { wPts = aPts + 1; lPts = bPts; homeWon = true; }
       }
 
       winner.wins += 1;
       loser.losses += 1;
+      
+      // Track home/road wins/losses
+      if (homeWon) {
+        teamHome.homeWins += 1;
+        teamAway.roadLosses += 1;
+      } else {
+        teamHome.homeLosses += 1;
+        teamAway.roadWins += 1;
+      }
+      
+      // Track conference wins/losses
+      if (teamHome.conf === teamAway.conf) {
+        if (homeWon) {
+          teamHome.confWins += 1;
+          teamAway.confLosses += 1;
+        } else {
+          teamHome.confLosses += 1;
+          teamAway.confWins += 1;
+        }
+      }
+      
+      // Update last10 array and streak
+      const gameResult = winner.id === teamHome.id ? "W" : "L";
+      for (const team of [teamHome, teamAway]) {
+        team.last10.push(team.id === winner.id ? "W" : "L");
+        if (team.last10.length > 10) team.last10.shift();
+        
+        // Update streak
+        if (team.last10.length > 0) {
+          const lastGame = team.last10[team.last10.length - 1];
+          if (lastGame === team.streakType || team.streakType === "—") {
+            team.streakType = lastGame;
+            team.streakLen += 1;
+          } else {
+            team.streakType = lastGame;
+            team.streakLen = 1;
+          }
+        }
+      }
+      
       distributeStats(winner.id, true);
       distributeStats(loser.id, false);
 
@@ -1856,7 +1912,19 @@
       if (meta.day > 112) {
         meta.day = 1;
         meta.season += 1;
-        teams.forEach(t => { t.wins = 0; t.losses = 0; });
+        teams.forEach(t => { 
+          t.wins = 0; 
+          t.losses = 0; 
+          t.confWins = 0;
+          t.confLosses = 0;
+          t.homeWins = 0;
+          t.homeLosses = 0;
+          t.roadWins = 0;
+          t.roadLosses = 0;
+          t.last10 = [];
+          t.streakType = "—";
+          t.streakLen = 0;
+        });
         state.league.log.unshift(`Season advanced to ${meta.season}. Records reset.`);
       }
 
@@ -2403,6 +2471,103 @@
       `;
     }
 
+    // Standings helper functions
+    function getWinPercentage(wins, losses) {
+      const total = wins + losses;
+      if (total === 0) return ".000";
+      const pct = wins / total;
+      return "." + Math.floor(pct * 1000).toString().padStart(3, "0");
+    }
+
+    function getGamesBack(teamWins, teamLosses, leaderWins, leaderLosses) {
+      const gb = ((leaderWins - teamWins) + (teamLosses - leaderLosses)) / 2;
+      return gb === 0 ? "—" : gb.toFixed(1);
+    }
+
+    function getLast10Record(last10Array) {
+      if (!last10Array || last10Array.length === 0) return "—";
+      const wins = last10Array.filter(g => g === "W").length;
+      const losses = last10Array.length - wins;
+      return `${wins}-${losses}`;
+    }
+
+    function getStreakDisplay(streakType, streakLen) {
+      if (streakType === "—" || streakLen === 0) return "—";
+      return `${streakType}${streakLen}`;
+    }
+
+    function viewStandings() {
+      const teams = [...state.league.teams].sort((a, b) => {
+        if (b.wins !== a.wins) return b.wins - a.wins;
+        return a.losses - b.losses;
+      });
+
+      if (!teams || teams.length === 0) {
+        return `<div class="card"><div class="bd"><span class="muted">No teams in league.</span></div></div>`;
+      }
+
+      const leaderWins = teams[0].wins;
+      const leaderLosses = teams[0].losses;
+
+      return `
+        <div class="grid">
+          <div class="card" style="grid-column: 1 / -1;">
+            <div class="hd">
+              <h2>Standings</h2>
+              <div class="hint">W-L records, conference standings, and streaks</div>
+            </div>
+            <div class="bd">
+              <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                <thead>
+                  <tr style="border-bottom: 2px solid #60a5fa;">
+                    <th style="text-align: left; padding: 8px; font-weight: bold; color: #60a5fa;">Team</th>
+                    <th style="text-align: center; padding: 8px; font-weight: bold; color: #60a5fa;">Record</th>
+                    <th style="text-align: center; padding: 8px; font-weight: bold; color: #60a5fa;">Win%</th>
+                    <th style="text-align: center; padding: 8px; font-weight: bold; color: #60a5fa;">GB</th>
+                    <th style="text-align: center; padding: 8px; font-weight: bold; color: #60a5fa;">Conf</th>
+                    <th style="text-align: center; padding: 8px; font-weight: bold; color: #60a5fa;">Home</th>
+                    <th style="text-align: center; padding: 8px; font-weight: bold; color: #60a5fa;">Road</th>
+                    <th style="text-align: center; padding: 8px; font-weight: bold; color: #60a5fa;">L10</th>
+                    <th style="text-align: center; padding: 8px; font-weight: bold; color: #60a5fa;">Streak</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${teams.map((team, idx) => {
+                    const record = `${team.wins}–${team.losses}`;
+                    const winPct = getWinPercentage(team.wins, team.losses);
+                    const gb = getGamesBack(team.wins, team.losses, leaderWins, leaderLosses);
+                    const confRecord = `${team.confWins}–${team.confLosses}`;
+                    const homeRecord = `${team.homeWins}–${team.homeLosses}`;
+                    const roadRecord = `${team.roadWins}–${team.roadLosses}`;
+                    const last10 = getLast10Record(team.last10);
+                    const streak = getStreakDisplay(team.streakType, team.streakLen);
+                    
+                    return `
+                      <tr style="border-bottom: 1px solid #1a1f2e; ${idx % 2 === 0 ? 'background-color: #0d1117;' : ''}">
+                        <td style="text-align: left; padding: 10px 8px;">
+                          <a href="#teams" onclick="selectTeamForStandings('${team.id}')" style="color: #60a5fa; text-decoration: none; cursor: pointer; font-weight: 500;">
+                            ${team.color ? generateTeamLogo(team.abbrev, team.color, 16) : ''} ${escapeHtml(team.name)}
+                          </a>
+                        </td>
+                        <td style="text-align: center; padding: 10px 8px;">${record}</td>
+                        <td style="text-align: center; padding: 10px 8px;">${winPct}</td>
+                        <td style="text-align: center; padding: 10px 8px;">${gb}</td>
+                        <td style="text-align: center; padding: 10px 8px;">${confRecord}</td>
+                        <td style="text-align: center; padding: 10px 8px;">${homeRecord}</td>
+                        <td style="text-align: center; padding: 10px 8px;">${roadRecord}</td>
+                        <td style="text-align: center; padding: 10px 8px;">${last10}</td>
+                        <td style="text-align: center; padding: 10px 8px; color: ${team.streakType === "W" ? "#34d399" : team.streakType === "L" ? "#f87171" : "#888"};">${streak}</td>
+                      </tr>
+                    `;
+                  }).join("")}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
     /**********************
      * 8) Rendering + Router
      **********************/
@@ -2440,6 +2605,7 @@
           else view.innerHTML = viewDashboard();
         }
         else if (state.route === "league") view.innerHTML = viewLeague();
+        else if (state.route === "standings") view.innerHTML = viewStandings();
         else if (state.route === "teams") view.innerHTML = viewTeams();
         else if (state.route === "players") view.innerHTML = viewPlayers();
         else view.innerHTML = `<div class="card"><div class="bd">Unknown route.</div></div>`;
@@ -2778,7 +2944,7 @@
     // Hash routing
     window.addEventListener("hashchange", () => {
       const route = (location.hash || "#home").replace("#","").trim();
-      const known = ["home","dashboard","league","teams","players"];
+      const known = ["home","dashboard","league","standings","teams","players"];
       setRoute(known.includes(route) ? route : "home");
     });
 
@@ -2807,6 +2973,11 @@
       
       const app = document.querySelector(".app");
       if (app) app.classList.remove("in-startup-menu");
+    }
+
+    function selectTeamForStandings(teamId) {
+      state.selectedTeamId = teamId;
+      setRoute("teams");
     }
 
     // Initialization
