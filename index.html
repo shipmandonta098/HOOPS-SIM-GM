@@ -1199,7 +1199,7 @@
      *   v0: Original - implicit version if schemaVersion missing
      *   v1: Core structure (meta, teams, players, log)
      **********************/
-    const CURRENT_SCHEMA_VERSION = 4;
+    const CURRENT_SCHEMA_VERSION = 5;
     const inMemorySaves = [];
     const inMemoryLeagues = {};
 
@@ -1263,8 +1263,63 @@
 
     const ALT_PATHS = ["G League Ignite", "Overseas Academy", "Prep-to-Pro", "Independent"];
 
+    // Country-specific name pools (first and last names for each country)
+    const NAME_POOLS = {
+      USA: {
+        first: ["James", "Michael", "Christopher", "David", "Robert", "Kevin", "Jason", "Ryan", "Brandon", "Tony", "Derek", "Kyle", "Steve", "Mark", "Scott", "Brad", "Chad", "Eric", "Justin", "Trent", "Blake", "Zach", "Dean", "Lane", "Grant"],
+        last: ["Johnson", "Smith", "Williams", "Brown", "Jones", "Garcia", "Martinez", "Anderson", "Taylor", "Thomas", "Moore", "Jackson", "Martin", "White", "Harris", "Sanchez", "Clark", "Lewis", "Robinson", "Lee", "Walker", "Hall", "Young", "King", "Wright"]
+      },
+      Canada: {
+        first: ["Justin", "Alexandre", "Marc", "Laurent", "Philippe", "Andre", "Daniel", "Nicolas", "Claude", "Simon", "Mathieu", "Patrick", "Robert", "Paul", "Etienne", "Yannick", "Steve", "Erick", "Matt", "Tyler", "Chris", "Adam"],
+        last: ["Marchand", "Bergeron", "Brodeur", "Plante", "MacDonald", "Campbell", "McKenzie", "Morrison", "Sullivan", "Murray", "Malone", "MacTavish", "Connor", "Harvey", "Messier", "Lemieux", "Lafleur", "Moreau", "Gagne", "Howe"]
+      },
+      France: {
+        first: ["Thierry", "Olivier", "Laurent", "Philippe", "Jean", "Marc", "Christophe", "Stephane", "Nicolas", "Michel", "Francois", "Pierre", "Benoit", "Antoine", "Vincent", "Yannick", "Mathieu", "Didier", "Cedric", "Fabrice"],
+        last: ["Dupont", "Moreau", "Leblanc", "Martin", "Bernard", "Blanc", "Renard", "Mercier", "Roux", "Lefevre", "Leclerc", "Fabre", "Arnaud", "Girard", "Bonnet", "Fontaine", "Marchand", "Dubois", "Rousseau", "Laurent"]
+      },
+      Spain: {
+        first: ["Carlos", "Diego", "Juan", "Miguel", "Fernando", "Roberto", "Javier", "Antonio", "Roger", "Pablo", "Sergio", "Raul", "Andres", "Luis", "Angel", "Manuel", "Enrique", "Rafael", "Eduardo", "Salvador"],
+        last: ["Garcia", "Hernandez", "Martinez", "Rodriguez", "Sanchez", "Lopez", "Gonzalez", "Fernandez", "Torres", "Navarro", "Ramirez", "Morales", "Espinoza", "Vargas", "Valdez", "Delgado", "Castillo", "Ruiz", "Ortiz", "Dominguez"]
+      },
+      Serbia: {
+        first: ["Nikola", "Vladimir", "Marko", "Stefan", "Goran", "Dejan", "Aleksandar", "Vlade", "Zoran", "Nenad", "Miodrag", "Srdjan", "Vladan", "Dragan", "Branko", "Milan", "Uros", "Milos", "Ivan", "Slobodan"],
+        last: ["Jokic", "Milic", "Ivanovic", "Markovic", "Pavlovic", "Mitrovic", "Djordjevic", "Nikolic", "Radinovic", "Popovic", "Tomanovic", "Savic", "Bosic", "Stankovic", "Simovic", "Nemanja", "Petrovic", "Vucevic", "Bogdanovic", "Teodosic"]
+      },
+      Slovenia: {
+        first: ["Goran", "Marko", "Jure", "Ales", "Uros", "Aleksandar", "Milan", "Bostjan", "Franc", "Sasa", "Damir", "Ivo", "Alen", "Samo", "Matjaz", "Stevo", "Dusan", "Tomislav"],
+        last: ["Dragic", "Radosevic", "Bislimovic", "Munic", "Peric", "Tomic", "Ilijas", "Novak", "Milic", "Banic", "Grabnar", "Golic", "Podkrajsek", "Dimec", "Jurca", "Jelovcan"]
+      },
+      Lithuania: {
+        first: ["Donatas", "Sarunas", "Arvydas", "Mindaugas", "Gintaras", "Mantas", "Virgilijus", "Darius", "Valdemaras", "Andrius", "Vidas", "Rimantas", "Povilas", "Audrius", "Remigijus", "Raimondas"],
+        last: ["Sabonis", "Marciulionis", "Petraitis", "Jankauskas", "Ilgunas", "Zizinskas", "Vidikis", "Kuzminskas", "Korzovas", "Masalskis", "Pocas", "Milasius", "Valinskas", "Adomaitis", "Bartusevicus", "Siskus"]
+      },
+      Australia: {
+        first: ["Andrew", "Jason", "Mark", "David", "Chris", "Shane", "Brett", "Steve", "Robert", "Paul", "Peter", "Michael", "Anthony", "Danny", "Ryan", "Aaron", "Kevin", "Craig", "Greg", "Wayne"],
+        last: ["Samson", "Heal", "Longley", "Maher", "Bradtke", "Brislane", "Jackson", "Murphy", "Williams", "Campbell", "Davidson", "Barrett", "Sullivan", "Morrison", "Thomson", "MacLeod", "Patterson", "McDonald"]
+      },
+      Nigeria: {
+        first: ["Tosin", "Chukwu", "Emeka", "Oluwaseun", "Jamal", "Ibrahim", "Tamir", "Nnamdi", "Kabir", "Femi", "Okafor", "Kofi", "Ebube", "Damien", "Maxwell", "Ade", "Kojo", "Kwame", "Sekou"],
+        last: ["Adebayo", "Okafor", "Ejiofor", "Nwankwo", "Chukwu", "Ezeoke", "Agbakoba", "Okoro", "Onyekwere", "Azeez", "Balogun", "Obi", "Okonkwo", "Udeh", "Eze", "Nwosu", "Mba", "Anyanwu"]
+      },
+      Argentina: {
+        first: ["Gabriel", "Juan", "Carlos", "Martin", "Diego", "Lucas", "Ruben", "Roberto", "Jorge", "Manuel", "Sergio", "Alejandro", "Gustavo", "Hector", "Ricardo", "Pablo", "Oscar", "Andres"],
+        last: ["Campazzo", "Vassel", "Nocioni", "Oberto", "Scola", "Causeur", "Lopez", "Hernandez", "Montoya", "Bernacha", "Patino", "Bassi", "Pereyra", "Trevino", "Araujo", "Fontana", "Dominguez"]
+      },
+      Brazil: {
+        first: ["Anderson", "Jefferson", "Ricardo", "Marcelo", "Leandro", "Mauro", "Gustavo", "Paulo", "Fabricio", "Raul", "Marcelinho", "Diego", "Roberto", "Nando", "Jamal", "Douglas", "Djalma"],
+        last: ["Varejao", "Barbosa", "Splitter", "Machado", "Felicio", "Turu", "Dias", "Silva", "Santos", "Oliveira", "Martins", "Neves", "Lourenco", "Brandao", "Correa", "Sousa", "Alves"]
+      }
+    };
+
     function randomFrom(arr) {
       return arr[Math.floor(Math.random() * arr.length)];
+    }
+
+    function generateNameForCountry(country) {
+      const pool = NAME_POOLS[country] || NAME_POOLS["USA"];
+      const firstName = randomFrom(pool.first);
+      const lastName = randomFrom(pool.last);
+      return { firstName, lastName };
     }
 
     function makeHeightWeightWingspan(pos) {
@@ -1451,24 +1506,9 @@
         const pos = positions[i % positions.length];
         
         // Generate realistic bio data by position
-        let heightIn, weightLb, wingspanIn;
-        if (pos === "PG") {
-          heightIn = randInt(69, 76);
-          weightLb = randInt(170, 210);
-        } else if (pos === "SG") {
-          heightIn = randInt(73, 79);
-          weightLb = randInt(190, 230);
-        } else if (pos === "SF") {
-          heightIn = randInt(75, 82);
-          weightLb = randInt(210, 250);
-        } else if (pos === "PF") {
-          heightIn = randInt(78, 84);
-          weightLb = randInt(230, 280);
-        } else { // C
-          heightIn = randInt(80, 88);
-          weightLb = randInt(250, 310);
-        }
-        wingspanIn = heightIn + randInt(2, 10);
+        const bio = generateBio(pos);  // Gets country + hometown + college
+        const phys = makeHeightWeightWingspan(pos);  // Gets height + weight + wingspan
+        const playerName = generateNameForCountry(bio.country);  // Gets firstName + lastName matching country
         
         const draftYear = 2026 - (age - 19);
         const draftRound = randInt(1, 2);
@@ -1476,8 +1516,8 @@
         
         return {
           id: uuid(),
-          firstName: n[0],
-          lastName: n[1],
+          firstName: playerName.firstName,
+          lastName: playerName.lastName,
           pos,
           age,
           teamId: team.id,
@@ -1488,10 +1528,10 @@
           stamina: randInt(70, 100),
           stats: { gp: 0, pts: 0, reb: 0, ast: 0 },
           // Bio fields
-          heightIn,
-          weightLb,
-          wingspanIn,
-          ...generateBio(pos),
+          heightIn: phys.heightIn,
+          weightLb: phys.weightLb,
+          wingspanIn: phys.wingspanIn,
+          ...bio,
           draftYear,
           draftRound,
           draftPick,
@@ -1686,6 +1726,38 @@
             v = 4;
             league.schemaVersion = 4;
             console.log("[Migration] ✓ v3 → v4 complete");
+          
+          } else if (v === 4) {
+            // v4 → v5: Couple player names to nationality
+            console.log("[Migration] Applying v4 → v5: Coupling player names to nationality");
+            
+            league.players = league.players || [];
+            
+            league.players.forEach(player => {
+              // Determine if this player has a placeholder bio that needs updating
+              const hasPlaceholderBio = 
+                !player.hometown || player.hometown === "Unknown" ||
+                !player.college || player.college === "International";
+              
+              if (hasPlaceholderBio) {
+                // Regenerate full bio with country, hometown, college
+                const bio = generateBio(player.pos || "SF");
+                
+                // Regenerate names matching the new country
+                const playerName = generateNameForCountry(bio.country);
+                
+                // Update player fields with new bio and names
+                player.firstName = playerName.firstName;
+                player.lastName = playerName.lastName;
+                player.country = bio.country;
+                player.hometown = bio.hometown;
+                player.college = bio.college;
+              }
+            });
+            
+            v = 5;
+            league.schemaVersion = 5;
+            console.log("[Migration] ✓ v4 → v5 complete");
           }
           
           else {
