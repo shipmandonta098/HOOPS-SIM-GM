@@ -1461,7 +1461,7 @@
      **********************/
     async function listSaves() {
       try {
-        if (Array.isArray(db.saves.toArray)) {
+        if (db && db.saves && typeof db.saves.toArray === 'function') {
           return await db.saves.toArray();
         }
         // In-memory fallback
