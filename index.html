@@ -1789,7 +1789,7 @@
       }
       
       // Track conference wins/losses
-      if (teamHome.conf === teamAway.conf) {
+      if (teamHome.conference === teamAway.conference) {
         if (homeWon) {
           teamHome.confWins += 1;
           teamAway.confLosses += 1;
@@ -2625,9 +2625,9 @@
       // Filter teams by conference
       let teams = [...state.league.teams];
       if (confFilter === "east") {
-        teams = teams.filter(t => t.conf === "Eastern");
+        teams = teams.filter(t => t.conference === "Eastern");
       } else if (confFilter === "west") {
-        teams = teams.filter(t => t.conf === "Western");
+        teams = teams.filter(t => t.conference === "Western");
       }
       
       // Sort by wins then losses
