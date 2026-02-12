@@ -1199,7 +1199,7 @@
      *   v0: Original - implicit version if schemaVersion missing
      *   v1: Core structure (meta, teams, players, log)
      **********************/
-    const CURRENT_SCHEMA_VERSION = 5;
+    const CURRENT_SCHEMA_VERSION = 6;
     const inMemorySaves = [];
     const inMemoryLeagues = {};
 
@@ -1374,7 +1374,93 @@
       return { country, hometown, college };
     }
 
-    // Generate SVG logo for a team
+    /**
+     * ensurePlayerIdentity: Single source of truth for player bio validity
+     * Ensures player has legitimate (non-placeholder) values for all identity fields.
+     * If fields are missing or placeholders, regenerates them with name-nationality coupling.
+     * Never overwrites legitimate non-placeholder values.
+     */
+    function ensurePlayerIdentity(p, league, teams) {
+      if (!p) return p;
+
+      // Helper: check if a value is a placeholder
+      function isPlaceholder(value, fallback) {
+        if (value === undefined || value === null || value === "") return true;
+        if (value === fallback) return true;
+        // Empty string or whitespace-only
+        if (typeof value === "string" && value.trim() === "") return true;
+        return false;
+      }
+
+      // Define clear placeholder values
+      const PLACEHOLDER_HOMETOWN = "Unknown";
+      const PLACEHOLDER_COUNTRY = "USA";
+      const PLACEHOLDER_COLLEGE = "International";
+
+      // Check bio fields
+      const hasValidHometown = !isPlaceholder(p.hometown, PLACEHOLDER_HOMETOWN);
+      const hasValidCountry = !isPlaceholder(p.country, PLACEHOLDER_COUNTRY);
+      const hasValidCollege = !isPlaceholder(p.college, PLACEHOLDER_COLLEGE);
+      
+      // Check physical fields
+      const hasValidHeight = p.heightIn && p.heightIn > 0 && p.heightIn > 50 && p.heightIn < 95;
+      const hasValidWeight = p.weightLb && p.weightLb > 0 && p.weightLb > 100 && p.weightLb < 350;
+      const hasValidWingspan = p.wingspanIn && p.wingspanIn > 0 && p.wingspanIn > 50 && p.wingspanIn < 100;
+
+      // Determine if player needs identity renewal
+      // If ANY bio field is invalid, regenerate ALL bio fields
+      const needsBioRenewal = !hasValidHometown || !hasValidCountry || !hasValidCollege;
+      const needsPhysicalRenewal = !hasValidHeight || !hasValidWeight || !hasValidWingspan;
+
+      if (needsBioRenewal) {
+        // Regenerate complete bio with country + hometown + college
+        const bio = generateBio(p.pos || "SF");
+        p.country = bio.country;
+        p.hometown = bio.hometown;
+        p.college = bio.college;
+
+        // Regenerate names matching the new country
+        const playerName = generateNameForCountry(bio.country);
+        p.firstName = playerName.firstName;
+        p.lastName = playerName.lastName;
+      }
+
+      if (needsPhysicalRenewal) {
+        // Regenerate physicals matching position
+        const phys = makeHeightWeightWingspan(p.pos || "SF");
+        p.heightIn = phys.heightIn;
+        p.weightLb = phys.weightLb;
+        p.wingspanIn = phys.wingspanIn;
+      }
+
+      // Ensure names exist and are not empty (even if bios were valid)
+      if (!p.firstName || typeof p.firstName !== "string" || p.firstName.trim() === "") {
+        const playerName = generateNameForCountry(p.country || "USA");
+        p.firstName = playerName.firstName;
+      }
+      if (!p.lastName || typeof p.lastName !== "string" || p.lastName.trim() === "") {
+        const playerName = generateNameForCountry(p.country || "USA");
+        p.lastName = playerName.lastName;
+      }
+
+      return p;
+    }
+
+    /**
+     * ensureLeaguePlayersHaveIdentity: Apply ensurePlayerIdentity to all players in a league
+     * Used as a safety pass to guarantee all players have valid identities after loading
+     */
+    function ensureLeaguePlayersHaveIdentity(league) {
+      if (!league || !league.players || league.players.length === 0) {
+        return league;
+      }
+
+      league.players.forEach(p => {
+        ensurePlayerIdentity(p, league, league.teams);
+      });
+
+      return league;
+    }
     function generateTeamLogo(abbrev, color, size = 32) {
       const svg = `
         <svg width="${size}" height="${size}" viewBox="0 0 40 40" style="display: inline-block; vertical-align: middle;">
@@ -1514,7 +1600,7 @@
         const draftRound = randInt(1, 2);
         const draftPick = randInt(1, 30);
         
-        return {
+        const player = {
           id: uuid(),
           firstName: playerName.firstName,
           lastName: playerName.lastName,
@@ -1539,6 +1625,11 @@
           // Contract
           contract: { amount: salary, years: randInt(2, 5), startSeason: draftYear + 1 }
         };
+        
+        // Ensure player identity is valid (final safety check)
+        ensurePlayerIdentity(player, null, teams);
+        
+        return player;
       });
 
       return {
@@ -1646,9 +1737,12 @@
                 player.weightLb = weightLb;
                 player.wingspanIn = heightIn + randInt(2, 10);
               }
-              player.hometown = player.hometown || "Unknown";
-              player.country = player.country || "USA";
-              player.college = player.college || "International";
+              
+              // Set initial bio placeholders (will be properly generated by ensurePlayerIdentity later)
+              // Don't override existing values
+              if (!player.hometown) player.hometown = "Unknown";
+              if (!player.country) player.country = "USA";
+              if (!player.college) player.college = "International";
               
               // Default draft fields if missing
               if (!player.draftYear) {
@@ -1758,6 +1852,18 @@
             v = 5;
             league.schemaVersion = 5;
             console.log("[Migration] ✓ v4 → v5 complete");
+          
+          } else if (v === 5) {
+            // v5 → v6: Apply ensurePlayerIdentity to guarantee all players have valid bios
+            // This is a comprehensive safety pass using the new ensurePlayerIdentity function
+            console.log("[Migration] Applying v5 → v6: Ensuring all players have valid identities");
+            
+            league.players = league.players || [];
+            league = ensureLeaguePlayersHaveIdentity(league);
+            
+            v = 6;
+            league.schemaVersion = 6;
+            console.log("[Migration] ✓ v5 → v6 complete");
           }
           
           else {
@@ -1830,6 +1936,9 @@
         
         // Migrate league to current schema version
         league = migrateLeague(league);
+        
+        // Apply safety pass to ensure all players have valid identities (catches any edge cases)
+        league = ensureLeaguePlayersHaveIdentity(league);
         
         // If migration occurred, save the upgraded league back to storage
         if ((league.schemaVersion || 0) > originalVersion) {
@@ -1998,6 +2107,9 @@
               // Run migration on imported league
               console.log("[Import] Migrating imported league");
               league = migrateLeague(league);
+              
+              // Apply safety pass to ensure all players have valid identities
+              league = ensureLeaguePlayersHaveIdentity(league);
 
               const saveName = await promptFor("Save name:", data.name || "Imported League");
               if (!saveName) return resolve(null);
@@ -4202,6 +4314,11 @@
           // Generate players for teams (8 per team minimum)
           const playersPerTeam = Math.max(8, Math.floor(80 / selectedTeams.length)); // Distribute ~80 total evenly
           const players = generatePlayersForTeams(selectedTeams, playersPerTeam);
+          
+          // Ensure all generated players have valid identities (apply bio generation + names)
+          players.forEach(p => {
+            ensurePlayerIdentity(p, null, selectedTeams);
+          });
 
           // Create save
           const newId = await createSave(name);
