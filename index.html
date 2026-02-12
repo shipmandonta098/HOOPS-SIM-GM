@@ -186,6 +186,12 @@
     th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .8px; }
     tr:hover td { background: rgba(96,165,250,.06); }
 
+    svg {
+      vertical-align: middle;
+      display: inline-block;
+      margin-right: 6px;
+    }
+
     .tag {
       display: inline-flex;
       align-items: center;
@@ -814,6 +820,13 @@
       line-height: 1.2;
     }
 
+    #createLeagueModal .team-card .team-logo {
+      margin-bottom: 6px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
     #createLeagueModal .team-card .team-abbrev {
       font-size: 10px;
       font-weight: 700;
@@ -878,6 +891,13 @@
       font-weight: 600;
       color: var(--text);
       margin-bottom: 4px;
+    }
+
+    #createLeagueModal .managed-team-logo {
+      margin-bottom: 6px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
     }
 
     #createLeagueModal .managed-team-abbrev {
@@ -1170,38 +1190,57 @@
       return crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + "-" + randInt(1000, 9999);
     }
 
+    // Generate SVG logo for a team
+    function generateTeamLogo(abbrev, color, size = 32) {
+      const svg = `
+        <svg width="${size}" height="${size}" viewBox="0 0 40 40" style="display: inline-block; vertical-align: middle;">
+          <circle cx="20" cy="20" r="19" fill="${color}" />
+          <circle cx="20" cy="20" r="17" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="1" />
+          <text x="20" y="24" font-size="16" font-weight="bold" fill="white" text-anchor="middle" font-family="Arial, sans-serif">
+            ${abbrev.substring(0, 2)}
+          </text>
+        </svg>
+      `.trim();
+      return svg;
+    }
+
+    // Generate inline logo HTML string
+    function getTeamLogoHtml(abbrev, color, size = 32) {
+      return generateTeamLogo(abbrev, color, size);
+    }
+
     // 30 U.S. City-Based Basketball Teams (Original Nicknames, Not NBA)
     const FICTIONAL_TEAMS = [
-      { name: "Austin Vipers", abbrev: "AUS", market_size: "Medium", conference: "Western", division: "Southwest" },
-      { name: "Boston Royals", abbrev: "BOS", market_size: "Large", conference: "Eastern", division: "Atlantic" },
-      { name: "Charlotte Dynasty", abbrev: "CHN", market_size: "Small", conference: "Eastern", division: "Southeast" },
-      { name: "Chicago Wolves", abbrev: "CHW", market_size: "Large", conference: "Eastern", division: "Central" },
-      { name: "Cleveland Titans", abbrev: "CLT", market_size: "Small", conference: "Eastern", division: "Central" },
-      { name: "Dallas Outlaws", abbrev: "DAL", market_size: "Large", conference: "Western", division: "Southwest" },
-      { name: "Denver Avalanche", abbrev: "DEN", market_size: "Medium", conference: "Western", division: "Southwest" },
-      { name: "Detroit Motors", abbrev: "DET", market_size: "Small", conference: "Eastern", division: "Central" },
-      { name: "Houston Crusaders", abbrev: "HOU", market_size: "Large", conference: "Western", division: "Southwest" },
-      { name: "Indianapolis Patriots", abbrev: "IND", market_size: "Medium", conference: "Eastern", division: "Southeast" },
-      { name: "Kansas City Royalty", abbrev: "KCR", market_size: "Small", conference: "Western", division: "Mountain" },
-      { name: "Las Vegas Outliers", abbrev: "LVE", market_size: "Small", conference: "Western", division: "Mountain" },
-      { name: "Los Angeles Radiance", abbrev: "LAR", market_size: "Large", conference: "Western", division: "Pacific" },
-      { name: "Memphis Legends", abbrev: "MEM", market_size: "Small", conference: "Eastern", division: "Southeast" },
-      { name: "Miami Dolphins", abbrev: "MIA", market_size: "Large", conference: "Eastern", division: "Southeast" },
-      { name: "Milwaukee Craftsmen", abbrev: "MIL", market_size: "Small", conference: "Eastern", division: "Central" },
-      { name: "Minneapolis Tempest", abbrev: "MIN", market_size: "Medium", conference: "Eastern", division: "Central" },
-      { name: "New Orleans Legends", abbrev: "NOL", market_size: "Small", conference: "Eastern", division: "Southeast" },
-      { name: "New York Emperors", abbrev: "NYE", market_size: "Large", conference: "Eastern", division: "Atlantic" },
-      { name: "Philadelphia Rebels", abbrev: "PHI", market_size: "Large", conference: "Eastern", division: "Atlantic" },
-      { name: "Phoenix Scorpions", abbrev: "PHX", market_size: "Medium", conference: "Western", division: "Mountain" },
-      { name: "Portland Fury", abbrev: "POR", market_size: "Medium", conference: "Western", division: "Pacific" },
-      { name: "Sacramento Sovereigns", abbrev: "SAC", market_size: "Small", conference: "Western", division: "Mountain" },
-      { name: "San Antonio Silver", abbrev: "SAS", market_size: "Medium", conference: "Western", division: "Southwest" },
-      { name: "San Diego Explorers", abbrev: "SDI", market_size: "Medium", conference: "Western", division: "Pacific" },
-      { name: "San Francisco Dynasty", abbrev: "SFD", market_size: "Large", conference: "Western", division: "Pacific" },
-      { name: "Seattle Tempests", abbrev: "SEA", market_size: "Medium", conference: "Western", division: "Pacific" },
-      { name: "Tampa Bay Raiders", abbrev: "TAM", market_size: "Small", conference: "Western", division: "Mountain" },
-      { name: "Toronto Legends", abbrev: "TOR", market_size: "Large", conference: "Eastern", division: "Atlantic" },
-      { name: "Washington Dynasty", abbrev: "WAS", market_size: "Medium", conference: "Eastern", division: "Atlantic" },
+      { name: "Austin Vipers", abbrev: "AUS", market_size: "Medium", conference: "Western", division: "Southwest", color: "#9c27b0" },
+      { name: "Boston Royals", abbrev: "BOS", market_size: "Large", conference: "Eastern", division: "Atlantic", color: "#d4af37" },
+      { name: "Charlotte Dynasty", abbrev: "CHN", market_size: "Small", conference: "Eastern", division: "Southeast", color: "#e91e63" },
+      { name: "Chicago Wolves", abbrev: "CHW", market_size: "Large", conference: "Eastern", division: "Central", color: "#ff6f00" },
+      { name: "Cleveland Titans", abbrev: "CLT", market_size: "Small", conference: "Eastern", division: "Central", color: "#0097a7" },
+      { name: "Dallas Outlaws", abbrev: "DAL", market_size: "Large", conference: "Western", division: "Southwest", color: "#c41c3b" },
+      { name: "Denver Avalanche", abbrev: "DEN", market_size: "Medium", conference: "Western", division: "Southwest", color: "#0066cc" },
+      { name: "Detroit Motors", abbrev: "DET", market_size: "Small", conference: "Eastern", division: "Central", color: "#003d7a" },
+      { name: "Houston Crusaders", abbrev: "HOU", market_size: "Large", conference: "Western", division: "Southwest", color: "#eb6e1f" },
+      { name: "Indianapolis Patriots", abbrev: "IND", market_size: "Medium", conference: "Eastern", division: "Southeast", color: "#002d62" },
+      { name: "Kansas City Royalty", abbrev: "KCR", market_size: "Small", conference: "Western", division: "Mountain", color: "#bd3039" },
+      { name: "Las Vegas Outliers", abbrev: "LVE", market_size: "Small", conference: "Western", division: "Mountain", color: "#333333" },
+      { name: "Los Angeles Radiance", abbrev: "LAR", market_size: "Large", conference: "Western", division: "Pacific", color: "#fdb827" },
+      { name: "Memphis Legends", abbrev: "MEM", market_size: "Small", conference: "Eastern", division: "Southeast", color: "#12173f" },
+      { name: "Miami Dolphins", abbrev: "MIA", market_size: "Large", conference: "Eastern", division: "Southeast", color: "#00b4d6" },
+      { name: "Milwaukee Craftsmen", abbrev: "MIL", market_size: "Small", conference: "Eastern", division: "Central", color: "#12173f" },
+      { name: "Minneapolis Tempest", abbrev: "MIN", market_size: "Medium", conference: "Eastern", division: "Central", color: "#0c2340" },
+      { name: "New Orleans Legends", abbrev: "NOL", market_size: "Small", conference: "Eastern", division: "Southeast", color: "#0014bc" },
+      { name: "New York Emperors", abbrev: "NYE", market_size: "Large", conference: "Eastern", division: "Atlantic", color: "#006bb6" },
+      { name: "Philadelphia Rebels", abbrev: "PHI", market_size: "Large", conference: "Eastern", division: "Atlantic", color: "#ed174c" },
+      { name: "Phoenix Scorpions", abbrev: "PHX", market_size: "Medium", conference: "Western", division: "Mountain", color: "#1d1160" },
+      { name: "Portland Fury", abbrev: "POR", market_size: "Medium", conference: "Western", division: "Pacific", color: "#e03c3c" },
+      { name: "Sacramento Sovereigns", abbrev: "SAC", market_size: "Small", conference: "Western", division: "Mountain", color: "#6f2da8" },
+      { name: "San Antonio Silver", abbrev: "SAS", market_size: "Medium", conference: "Western", division: "Southwest", color: "#c4ced4" },
+      { name: "San Diego Explorers", abbrev: "SDI", market_size: "Medium", conference: "Western", division: "Pacific", color: "#2f3e70" },
+      { name: "San Francisco Dynasty", abbrev: "SFD", market_size: "Large", conference: "Western", division: "Pacific", color: "#1d428a" },
+      { name: "Seattle Tempests", abbrev: "SEA", market_size: "Medium", conference: "Western", division: "Pacific", color: "#00471b" },
+      { name: "Tampa Bay Raiders", abbrev: "TAM", market_size: "Small", conference: "Western", division: "Mountain", color: "#092c5e" },
+      { name: "Toronto Legends", abbrev: "TOR", market_size: "Large", conference: "Eastern", division: "Atlantic", color: "#ce1141" },
+      { name: "Washington Dynasty", abbrev: "WAS", market_size: "Medium", conference: "Eastern", division: "Atlantic", color: "#002b5c" },
     ];
 
     function generatePlayersForTeams(teams, playersPerTeam = 8) {
@@ -1885,14 +1924,21 @@
             <tr><th>Team</th><th>W</th><th>L</th><th>Power</th></tr>
           </thead>
           <tbody>
-            ${teams.map(t => `
+            ${teams.map(t => {
+              const logoSvg = t.color ? generateTeamLogo(t.abbrev, t.color, 24) : '';
+              return `
               <tr>
-                <td><span class="click" data-team="${t.id}">${escapeHtml(t.name)}</span> <span class="tag">${t.abbrev}</span></td>
+                <td><span>${logoSvg}</span> <span class="click" data-team="${t.id}">${escapeHtml(t.name)}</span> <span class="tag">${t.abbrev}</span></td>
                 <td>${t.wins}</td>
                 <td>${t.losses}</td>
                 <td>${teamPower(t.id).toFixed(1)}</td>
               </tr>
-            `).join("")}
+            `;
+            }).join("")}
+          </tbody>
+        </table>
+      `;
+    }
           </tbody>
         </table>
       `;
@@ -1938,9 +1984,10 @@
                 <tbody>
                   ${teams.map(t => {
                     const payroll = state.league.players.filter(p=>p.teamId===t.id).reduce((s,p)=>s+p.salary,0);
+                    const logoSvg = t.color ? generateTeamLogo(t.abbrev, t.color, 24) : '';
                     return `
                       <tr>
-                        <td><span class="click" data-team="${t.id}">${escapeHtml(t.name)}</span> <span class="tag">${t.abbrev}</span></td>
+                        <td><span>${logoSvg}</span> <span class="click" data-team="${t.id}">${escapeHtml(t.name)}</span> <span class="tag">${t.abbrev}</span></td>
                         <td>${t.wins}-${t.losses}</td>
                         <td>${money(payroll)}</td>
                         <td>${money(t.cash)}</td>
@@ -1967,11 +2014,12 @@
       if (!t) return "";
       const roster = state.league.players.filter(p=>p.teamId===teamId).sort((a,b)=>b.ovr-a.ovr);
       const payroll = roster.reduce((s,p)=>s+p.salary,0);
+      const logoSvg = t.color ? generateTeamLogo(t.abbrev, t.color, 32) : '';
 
       return `
         <div class="card">
           <div class="hd">
-            <h2>${escapeHtml(t.name)} Roster</h2>
+            <h2>${logoSvg} ${escapeHtml(t.name)} Roster</h2>
             <div class="hint">Power: ${teamPower(teamId).toFixed(1)} · Payroll: ${money(payroll)}</div>
           </div>
           <div class="bd">
@@ -2016,10 +2064,11 @@
                 <tbody>
                   ${players.map(p => {
                     const t = teamById(p.teamId);
+                    const logoSvg = t.color ? generateTeamLogo(t.abbrev, t.color, 20) : '';
                     return `
                       <tr>
                         <td><span class="click" data-player="${p.id}">${escapeHtml(playerName(p))}</span></td>
-                        <td>${escapeHtml(t.name)} <span class="tag">${t.abbrev}</span></td>
+                        <td><span>${logoSvg}</span> ${escapeHtml(t.name)} <span class="tag">${t.abbrev}</span></td>
                         <td>${p.pos}</td>
                         <td>${p.age}</td>
                         <td>${p.ovr}</td>
@@ -2049,11 +2098,12 @@
       const p = state.league.players.find(x => x.id === playerId);
       if (!p) return "";
       const t = teamById(p.teamId);
+      const logoSvg = t.color ? generateTeamLogo(t.abbrev, t.color, 28) : '';
       return `
         <div class="card">
           <div class="hd">
             <h2>${escapeHtml(playerName(p))} <span class="tag">${p.pos}</span></h2>
-            <div class="hint">${escapeHtml(t.name)} · Salary ${money(p.salary)}</div>
+            <div class="hint">${logoSvg} ${escapeHtml(t.name)} · Salary ${money(p.salary)}</div>
           </div>
           <div class="bd">
             <div class="kpis">
@@ -2667,6 +2717,7 @@
           if (selectedTeamIndices.has(idx)) card.classList.add("selected");
           
           card.innerHTML = `
+            <div class="team-logo">${generateTeamLogo(team.abbrev, team.color, 40)}</div>
             <div class="team-name">${team.name}</div>
             <div class="team-abbrev">${team.abbrev}</div>
             <div class="team-info">
@@ -2707,6 +2758,7 @@
           if (selectedManagedTeamId === team.abbrev) card.classList.add("selected");
           
           card.innerHTML = `
+            <div class="managed-team-logo">${generateTeamLogo(team.abbrev, team.color, 36)}</div>
             <div class="managed-team-label">${team.name}</div>
             <div class="managed-team-abbrev">${team.abbrev}</div>
             <div class="managed-team-info">
@@ -2830,6 +2882,10 @@
                 id: uuid(),
                 name: team.name,
                 abbrev: team.abbrev,
+                color: team.color,
+                market_size: team.market_size,
+                conference: team.conference,
+                division: team.division,
                 wins: 0,
                 losses: 0,
                 cash: 50_000_000
