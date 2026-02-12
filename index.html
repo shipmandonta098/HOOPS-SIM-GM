@@ -2871,6 +2871,7 @@
       const savesList = document.getElementById("savesList");
       if (!savesList) return;
       const saves = await listSaves();
+      if (!saves) return;
       saves.sort((a,b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
       savesList.innerHTML = saves.map(s => {
@@ -2918,6 +2919,7 @@
               render();
             }
             refillSavesList();
+            await populateFrontOfficeSaves();
           }
         };
       });
@@ -3017,6 +3019,12 @@
     async function loadSaveAndEnter(saveId) {
       const league = await loadSave(saveId);
       if (league) {
+        // Update lastOpenedAt timestamp
+        const now = Date.now();
+        if (db.saves && db.saves.update) {
+          await db.saves.update(saveId, { lastOpenedAt: now });
+        }
+
         state.league = league;
         state.currentSaveId = saveId;
         state.userTeamId = league.meta?.userTeamId || null;
@@ -3289,7 +3297,7 @@
         });
       }
 
-      // Front Office: Continue with current league
+      // Front Office: Continue with current league (Continue Latest)
       const foContinue = document.getElementById("foContinue");
       if (foContinue) {
         foContinue.addEventListener("click", async () => {
@@ -3300,8 +3308,15 @@
             const latestSave = saves[0];
             const league = await loadSave(latestSave.id);
             if (league) {
+              // Update lastOpenedAt timestamp
+              const now = Date.now();
+              if (db.saves && db.saves.update) {
+                await db.saves.update(latestSave.id, { lastOpenedAt: now });
+              }
+
               state.league = league;
               state.currentSaveId = latestSave.id;
+              state.userTeamId = league.meta?.userTeamId || null;
               setSaveStatus("Loaded");
               hideAllMenus();
               setRoute("home");
@@ -3345,15 +3360,25 @@
 
                 const newId = await createSave(saveName);
                 if (newId) {
+                  const migrated = migrateLeague(data);
                   if (db.leagues && db.leagues.update) {
-                    await db.leagues.update(newId, { blob: league, schemaVersion: CURRENT_SCHEMA_VERSION });
+                    await db.leagues.update(newId, { blob: migrated, schemaVersion: CURRENT_SCHEMA_VERSION });
                   } else if (dbError) {
-                    inMemoryLeagues[newId] = { id: newId, blob: league, schemaVersion: CURRENT_SCHEMA_VERSION };
+                    inMemoryLeagues[newId] = { id: newId, blob: migrated, schemaVersion: CURRENT_SCHEMA_VERSION };
                   }
-                  state.league = league;
+
+                  // Update save metadata
+                  const now = Date.now();
+                  if (db.saves && db.saves.update) {
+                    await db.saves.update(newId, { updatedAt: now });
+                  }
+
+                  state.league = migrated;
                   state.currentSaveId = newId;
+                  state.userTeamId = migrated.meta?.userTeamId || null;
                   setSaveStatus("Loaded");
                   await refillSavesList();
+                  await populateFrontOfficeSaves();
                   showBanner("success", "✓ League imported");
                   updateFrontOfficePreview();
                 }
@@ -3574,8 +3599,10 @@
           // Create league with selected teams
           const selectedTeams = Array.from(selectedTeamIndices)
             .sort((a, b) => a - b)
-            .map(idx => {
+            .map((idx, teamIdx) => {
               const team = FICTIONAL_TEAMS[idx];
+              // Assign East/West conferences: first half East, second half West
+              const conf = teamIdx < Math.ceil(selectedTeamIndices.size / 2) ? "East" : "West";
               return {
                 id: uuid(),
                 name: team.name,
@@ -3586,7 +3613,17 @@
                 division: team.division,
                 wins: 0,
                 losses: 0,
-                cash: 50_000_000
+                cash: 50_000_000,
+                conf: conf,
+                confWins: 0,
+                confLosses: 0,
+                homeWins: 0,
+                homeLosses: 0,
+                roadWins: 0,
+                roadLosses: 0,
+                last10: [],
+                streakType: "—",
+                streakLen: 0
               };
             });
 
@@ -3607,11 +3644,12 @@
                 season: year,
                 day: 1,
                 phase: "REGULAR_SEASON",
-                managedTeamId: managedTeam ? managedTeam.id : null,
+                userTeamId: managedTeam ? managedTeam.id : null,
               },
               teams: selectedTeams,
               players: players,
-              log: [`League "${name}" created in ${year}.`, `Now managing ${managedTeam.name} (${managedTeam.abbrev})`]
+              log: [`League "${name}" created in ${year}.`, `Now managing ${managedTeam.name} (${managedTeam.abbrev})`],
+              schemaVersion: CURRENT_SCHEMA_VERSION
             };
 
             state.currentSaveId = newId;
@@ -3624,7 +3662,14 @@
               inMemoryLeagues[newId] = { id: newId, blob: state.league, schemaVersion: CURRENT_SCHEMA_VERSION };
             }
 
+            // Update save metadata (updatedAt and lastOpenedAt)
+            const now = Date.now();
+            if (db.saves && db.saves.update) {
+              await db.saves.update(newId, { updatedAt: now, lastOpenedAt: now });
+            }
+
             await refillSavesList();
+            await populateFrontOfficeSaves();
             hideAllMenus();
             state.userTeamId = managedTeam ? managedTeam.id : null;
             setRoute("dashboard");
