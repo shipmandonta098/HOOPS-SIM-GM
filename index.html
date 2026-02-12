@@ -526,13 +526,16 @@
     }
     #frontOfficeMenu .secondary-buttons {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(2, 1fr);
       gap: 8px;
       margin-bottom: 20px;
     }
     #frontOfficeMenu .secondary-buttons button {
       padding: 10px 12px;
       font-size: 12px;
+    }
+    #frontOfficeMenu #foLoadLeague {
+      display: none;
     }
     #frontOfficeMenu .save-preview {
       border: 1px solid var(--line);
@@ -557,7 +560,7 @@
       flex-direction: column;
       gap: 8px;
       margin-top: 20px;
-      max-height: 300px;
+      max-height: 350px;
       overflow-y: auto;
     }
     #frontOfficeMenu .saves-list .save-preview {
@@ -566,6 +569,11 @@
       justify-content: space-between;
       align-items: center;
       gap: 12px;
+      transition: all 0.2s ease;
+    }
+    #frontOfficeMenu .saves-list .save-preview:hover {
+      background: rgba(96, 165, 250, 0.15);
+      border-color: #60a5fa;
     }
     #frontOfficeMenu .saves-list .save-preview.latest {
       border-color: #60a5fa;
@@ -584,6 +592,7 @@
       padding: 8px 14px;
       font-size: 11px;
       white-space: nowrap;
+      flex-shrink: 0;
     }
 
     /* Create League Modal */
@@ -2289,6 +2298,109 @@
       });
     }
 
+    // Populate Front Office saves with league metadata
+    async function populateFrontOfficeSaves() {
+      const preview = document.getElementById("foSavePreview");
+      if (!preview) return;
+      
+      // Show loading state
+      preview.innerHTML = '<div class="saves-list" style="text-align: center; color: var(--muted); padding: 20px;">Loading leagues…</div>';
+      
+      try {
+        const saves = await listSaves();
+        
+        if (!saves || saves.length === 0) {
+          preview.innerHTML = '<div style="margin-top: 20px; color: var(--muted); font-size: 14px;">No leagues yet. Create one to begin.</div>';
+          // Hide Continue button
+          const continueBtn = document.getElementById("foContinue");
+          if (continueBtn) {
+            continueBtn.style.display = "none";
+          }
+          return;
+        }
+        
+        // Sort by updatedAt descending
+        saves.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+        
+        // Build list HTML
+        let html = '<div class="saves-list">';
+        
+        for (let i = 0; i < saves.length; i++) {
+          const save = saves[i];
+          const league = await loadSave(save.id);
+          
+          if (!league) continue;
+          
+          const isLatest = i === 0;
+          const teamCount = league.teams ? league.teams.length : 0;
+          const playerCount = league.players ? league.players.length : 0;
+          const season = league.meta ? league.meta.season : "?";
+          const day = league.meta ? league.meta.day : "?";
+          const lastPlayedDate = save.lastOpenedAt 
+            ? new Date(save.lastOpenedAt).toLocaleDateString()
+            : (save.updatedAt ? new Date(save.updatedAt).toLocaleDateString() : "Never");
+          
+          html += `
+            <div class="save-preview ${isLatest ? 'latest' : ''}" data-save-id="${save.id}" style="cursor: pointer;">
+              <div style="flex: 1;">
+                <div style="font-weight: 600; margin-bottom: 4px;">${escapeHtml(save.name)}</div>
+                <div style="font-size: 12px; color: var(--muted); line-height: 1.4; margin-bottom: 4px;">
+                  Season ${season}, Day ${day} • ${teamCount} teams • ${playerCount} players
+                </div>
+                <div style="font-size: 11px; color: var(--muted);">Last played: ${lastPlayedDate}</div>
+              </div>
+              <button class="mini-btn continue-btn" data-save-id="${save.id}" style="white-space: nowrap;">Load</button>
+            </div>
+          `;
+        }
+        
+        html += '</div>';
+        preview.innerHTML = html;
+        
+        // Attach event listeners to save items
+        preview.querySelectorAll('.save-preview').forEach(item => {
+          const saveId = item.dataset.saveId;
+          
+          // Make entire card clickable in addition to button
+          item.addEventListener('click', async (e) => {
+            if (e.target.closest('.continue-btn')) return; // Prevent double handling
+            await loadSaveAndEnter(saveId);
+          });
+          
+          // Button handler
+          item.querySelector('.continue-btn').addEventListener('click', async (e) => {
+            e.stopPropagation();
+            await loadSaveAndEnter(saveId);
+          });
+        });
+        
+        // Show Continue Latest button if leagues exist
+        const continueBtn = document.getElementById("foContinue");
+        if (continueBtn) {
+          continueBtn.style.display = "block";
+          continueBtn.disabled = false;
+          continueBtn.textContent = "Continue Latest";
+        }
+        
+      } catch (err) {
+        console.error("Error populating front office saves:", err);
+        preview.innerHTML = '<div style="margin-top: 20px; color: #ff6b6b; font-size: 14px;">❌ Error loading leagues</div>';
+      }
+    }
+
+    // Helper to load save and enter app
+    async function loadSaveAndEnter(saveId) {
+      const league = await loadSave(saveId);
+      if (league) {
+        state.league = league;
+        state.currentSaveId = saveId;
+        setSaveStatus("Loaded");
+        hideAllMenus();
+        setRoute("home");
+        showBanner("success", `✓ Loaded "${league.meta?.name || 'League'}"`);
+      }
+    }
+
     /**********************
      * 9) UI Events
      **********************/
@@ -2514,47 +2626,7 @@
       }
 
       function updateFrontOfficePreview() {
-        const preview = document.getElementById("foSavePreview");
-        
-        if (!state.saves || state.saves.length === 0) {
-          preview.innerHTML = "";
-          document.getElementById("foContinue").disabled = true;
-          document.getElementById("foContinue").textContent = "No League Found";
-          return;
-        }
-        
-        // Show list of available saves
-        let html = '<div class="saves-list">';
-        state.saves.forEach((save, idx) => {
-          const isLatest = idx === 0;
-          html += `
-            <div class="save-preview ${isLatest ? 'latest' : ''}">
-              <h4>${save.name || "Untitled League"}</h4>
-              <p>Last opened: ${new Date(save.lastOpenedAt).toLocaleDateString()}</p>
-              <button class="mini-btn continue-btn" data-save-id="${save.id}">Continue</button>
-            </div>
-          `;
-        });
-        html += '</div>';
-        
-        preview.innerHTML = html;
-        
-        // Attach continue button handlers for each save
-        preview.querySelectorAll('.continue-btn').forEach(btn => {
-          btn.addEventListener('click', async (e) => {
-            const saveId = e.target.dataset.saveId;
-            const save = state.saves.find(s => s.id === saveId);
-            if (save) {
-              await loadSave(saveId);
-              hideAllMenus();
-              setRoute("home");
-              showBanner("success", `✓ Loaded "${save.name}"`);
-            }
-          });
-        });
-        
-        document.getElementById("foContinue").disabled = false;
-        document.getElementById("foContinue").textContent = "Continue Latest";
+        populateFrontOfficeSaves();
       }
 
       // Title Screen: Enter Front Office
@@ -2578,11 +2650,19 @@
       if (foContinue) {
         foContinue.addEventListener("click", async () => {
           // Load the latest save
-          if (state.saves && state.saves.length > 0) {
-            await loadSave(state.saves[0].id);
-            hideAllMenus();
-            setRoute("home");
-            showBanner("success", `✓ Loaded "${state.saves[0].name}"`);
+          const saves = await listSaves();
+          if (saves && saves.length > 0) {
+            saves.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+            const latestSave = saves[0];
+            const league = await loadSave(latestSave.id);
+            if (league) {
+              state.league = league;
+              state.currentSaveId = latestSave.id;
+              setSaveStatus("Loaded");
+              hideAllMenus();
+              setRoute("home");
+              showBanner("success", `✓ Loaded "${latestSave.name}"`);
+            }
           } else {
             showBanner("error", "❌ No league found");
           }
