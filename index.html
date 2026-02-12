@@ -873,6 +873,51 @@
       font-size: 10px;
     }
 
+    #createLeagueModal .league-size-selector {
+      margin-bottom: 20px;
+      padding: 14px 0;
+      border-bottom: 1px solid rgba(96, 165, 250, 0.2);
+    }
+
+    #createLeagueModal .league-size-selector label {
+      display: block;
+      margin-bottom: 12px;
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--text);
+    }
+
+    #createLeagueModal .size-buttons {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    #createLeagueModal .size-btn {
+      padding: 10px 16px;
+      font-size: 13px;
+      font-weight: 500;
+      border: 1px solid rgba(96, 165, 250, 0.3);
+      border-radius: 6px;
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    #createLeagueModal .size-btn:hover {
+      border-color: #60a5fa;
+      background: rgba(96, 165, 250, 0.1);
+    }
+
+    #createLeagueModal .size-btn.selected {
+      border-color: #60a5fa;
+      background: rgba(96, 165, 250, 0.2);
+      color: #60a5fa;
+      font-weight: 700;
+      box-shadow: 0 0 8px rgba(96, 165, 250, 0.3);
+    }
+
     /* Hide app chrome during startup menu flow */
     .app.in-startup-menu .sidebar,
     .app.in-startup-menu .topbar {
@@ -946,9 +991,23 @@
           <input type="number" id="createLeagueYear" min="1900" max="2500" value="2026">
         </div>
 
+        <div class="form-group league-size-selector">
+          <label for="leagueSize">League Size</label>
+          <div class="size-buttons">
+            <button type="button" class="size-btn" data-size="8">8</button>
+            <button type="button" class="size-btn" data-size="10">10</button>
+            <button type="button" class="size-btn" data-size="12">12</button>
+            <button type="button" class="size-btn" data-size="16">16</button>
+            <button type="button" class="size-btn" data-size="20">20</button>
+            <button type="button" class="size-btn" data-size="24">24</button>
+            <button type="button" class="size-btn selected" data-size="30">30</button>
+          </div>
+          <div id="leagueSizeError" style="display: none; color: #f87171; font-size: 12px; margin-top: 8px;"></div>
+        </div>
+
         <div class="form-group team-selection">
           <div class="team-selection-header">
-            <h4>Select 30 Teams</h4>
+            <h4><span id="teamSelectionTitle">Select 30 Teams</span></h4>
             <span class="counter" id="teamCounter">Selected: 30/30</span>
           </div>
           <div class="quick-actions">
@@ -1085,41 +1144,41 @@
       return crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + "-" + randInt(1000, 9999);
     }
 
-    // 30 Original Fictional Basketball Teams (NOT NBA-derived)
+    // 30 U.S. City-Based Basketball Teams (Original Nicknames, Not NBA)
     const FICTIONAL_TEAMS = [
-      { name: "Aster Gate Architects", abbrev: "AGA" },
-      { name: "Blaze Vein Runners", abbrev: "BVR" },
-      { name: "Cipher Peak Walkers", abbrev: "CPW" },
-      { name: "Drift Tide Sovereigns", abbrev: "DTS" },
-      { name: "Ether Reach Sentinels", abbrev: "ERS" },
-      { name: "Forge Haven Crafters", abbrev: "FHC" },
-      { name: "Gleam Canyon Seekers", abbrev: "GCS" },
-      { name: "Helix Storm Riders", abbrev: "HSR" },
-      { name: "Ivory Mist Dwellers", abbrev: "IMD" },
-      { name: "Jinx Void Keepers", abbrev: "JVK" },
-      { name: "Kaels Mons Guardians", abbrev: "KMG" },
-      { name: "Lure Bay Corsairs", abbrev: "LBC" },
-      { name: "Mystic Vale Shamans", abbrev: "MVS" },
-      { name: "Nexus Point Pillars", abbrev: "NPP" },
-      { name: "Obsidian Shrine Monks", abbrev: "OSM" },
-      { name: "Prism Tower Sages", abbrev: "PTS" },
-      { name: "Quell Shore Navigators", abbrev: "QSN" },
-      { name: "Realm Shift Artisans", abbrev: "RSA" },
-      { name: "Surge Echo Champions", abbrev: "SEC" },
-      { name: "Tome Peak Scholars", abbrev: "TPS" },
-      { name: "Umbra Vale Pathfinders", abbrev: "UVP" },
-      { name: "Venom Crest Vanguards", abbrev: "VCV" },
-      { name: "Wraith Haven Wardens", abbrev: "WHW" },
-      { name: "Xyst Hollow Nomads", abbrev: "XHN" },
-      { name: "Yield Star Initiates", abbrev: "YSI" },
-      { name: "Zenith Rift Keepers", abbrev: "ZRK" },
-      { name: "Abyss Tide Dreamers", abbrev: "ATD" },
-      { name: "Bastion Shade Crafters", abbrev: "BSC" },
-      { name: "Crown Vale Seekers", abbrev: "CVS" },
-      { name: "Void Spire Oracles", abbrev: "VSO" },
+      { name: "Austin Vipers", abbrev: "AUS" },
+      { name: "Boston Royals", abbrev: "BOS" },
+      { name: "Charlotte Dynasty", abbrev: "CHN" },
+      { name: "Chicago Wolves", abbrev: "CHW" },
+      { name: "Cleveland Titans", abbrev: "CLT" },
+      { name: "Dallas Outlaws", abbrev: "DAL" },
+      { name: "Denver Avalanche", abbrev: "DEN" },
+      { name: "Detroit Motors", abbrev: "DET" },
+      { name: "Houston Crusaders", abbrev: "HOU" },
+      { name: "Indianapolis Patriots", abbrev: "IND" },
+      { name: "Kansas City Royalty", abbrev: "KCR" },
+      { name: "Las Vegas Outliers", abbrev: "LVE" },
+      { name: "Los Angeles Radiance", abbrev: "LAR" },
+      { name: "Memphis Legends", abbrev: "MEM" },
+      { name: "Miami Dolphins", abbrev: "MIA" },
+      { name: "Milwaukee Craftsmen", abbrev: "MIL" },
+      { name: "Minneapolis Tempest", abbrev: "MIN" },
+      { name: "New Orleans Legends", abbrev: "NOL" },
+      { name: "New York Emperors", abbrev: "NYE" },
+      { name: "Philadelphia Rebels", abbrev: "PHI" },
+      { name: "Phoenix Scorpions", abbrev: "PHX" },
+      { name: "Portland Fury", abbrev: "POR" },
+      { name: "Sacramento Sovereigns", abbrev: "SAC" },
+      { name: "San Antonio Silver", abbrev: "SAS" },
+      { name: "San Diego Explorers", abbrev: "SDI" },
+      { name: "San Francisco Dynasty", abbrev: "SFD" },
+      { name: "Seattle Tempests", abbrev: "SEA" },
+      { name: "Tampa Bay Raiders", abbrev: "TAM" },
+      { name: "Toronto Legends", abbrev: "TOR" },
+      { name: "Washington Dynasty", abbrev: "WAS" },
     ];
 
-    function generatePlayersForTeams(teams) {
+    function generatePlayersForTeams(teams, playersPerTeam = 8) {
       const firstNames = [
         "Jalen", "Malik", "Theo", "Darius", "Andre", "Zion", "Marcus", "Kyrie",
         "Noah", "Devin", "Evan", "Jordan", "Brandon", "Kyle", "Chase", "Harrison",
@@ -1144,7 +1203,7 @@
 
       let playerIdx = 0;
       teams.forEach(team => {
-        for (let i = 0; i < 10; i++) {
+        for (let i = 0; i < playersPerTeam; i++) {
           const firstName = firstNames[playerIdx % firstNames.length];
           const lastName = lastNames[(playerIdx + Math.floor(Math.random() * lastNames.length)) % lastNames.length];
           const ovr = randInt(50, 85);
@@ -2372,8 +2431,21 @@
           setTimeout(() => { elem.style.display = "none"; }, 300);
         }
         // Reset state for next time
+        leagueSize = 30;
         selectedTeamIndices = new Set(Array.from({length: 30}, (_, i) => i));
         selectedManagedTeamId = null;
+        
+        // Reset UI to defaults
+        const sizeButtons = document.querySelectorAll("#createLeagueModal .size-btn");
+        sizeButtons.forEach(b => b.classList.remove("selected"));
+        const btn30 = document.querySelector('#createLeagueModal .size-btn[data-size="30"]');
+        if (btn30) btn30.classList.add("selected");
+        
+        const title = document.getElementById("teamSelectionTitle");
+        if (title) title.textContent = "Select 30 Teams";
+        
+        const leagueSizeError = document.getElementById("leagueSizeError");
+        if (leagueSizeError) leagueSizeError.style.display = "none";
       }
 
       function hideAllMenus() {
@@ -2535,8 +2607,28 @@
       }
 
       // === CREATE LEAGUE MODAL STATE ===
+      let leagueSize = 30;
       let selectedTeamIndices = new Set(Array.from({length: 30}, (_, i) => i)); // All selected by default
       let selectedManagedTeamId = null; // Team to manage (abbrev)
+
+      function updateTeamCounter() {
+        const counter = document.getElementById("teamCounter");
+        if (counter) {
+          const count = selectedTeamIndices.size;
+          counter.textContent = `Selected: ${count}/${leagueSize}`;
+        }
+        
+        // Update error message if selection doesn't match
+        const leagueSizeError = document.getElementById("leagueSizeError");
+        if (leagueSizeError) {
+          if (selectedTeamIndices.size !== leagueSize) {
+            leagueSizeError.textContent = `⚠️ Select ${leagueSize} teams (currently ${selectedTeamIndices.size})`;
+            leagueSizeError.style.display = "block";
+          } else {
+            leagueSizeError.style.display = "none";
+          }
+        }
+      }
 
       function renderTeamGrid() {
         const grid = document.getElementById("teamGrid");
@@ -2554,23 +2646,21 @@
           `;
           
           card.addEventListener("click", () => {
-            selectedTeamIndices.has(idx) 
-              ? selectedTeamIndices.delete(idx)
-              : selectedTeamIndices.add(idx);
+            // Prevent exceeding league size when clicking
+            if (selectedTeamIndices.has(idx)) {
+              selectedTeamIndices.delete(idx);
+            } else {
+              if (selectedTeamIndices.size < leagueSize) {
+                selectedTeamIndices.add(idx);
+              }
+            }
             updateTeamCounter();
             renderTeamGrid();
+            renderManagedTeamGrid();
           });
           
           grid.appendChild(card);
         });
-      }
-
-      function updateTeamCounter() {
-        const counter = document.getElementById("teamCounter");
-        if (counter) {
-          const count = selectedTeamIndices.size;
-          counter.textContent = `Selected: ${count}/30`;
-        }
       }
 
       function renderManagedTeamGrid() {
@@ -2611,13 +2701,39 @@
         }
       }
 
+      // Create League Modal: League Size Selector
+      const sizeButtons = document.querySelectorAll("#createLeagueModal .size-btn");
+      sizeButtons.forEach(btn => {
+        btn.addEventListener("click", () => {
+          const newSize = parseInt(btn.dataset.size);
+          leagueSize = newSize;
+          
+          // Update button active state
+          sizeButtons.forEach(b => b.classList.remove("selected"));
+          btn.classList.add("selected");
+          
+          // Reset selections to first N teams
+          selectedTeamIndices = new Set(Array.from({length: leagueSize}, (_, i) => i));
+          selectedManagedTeamId = null;
+          
+          // Update title
+          const title = document.getElementById("teamSelectionTitle");
+          if (title) title.textContent = `Select ${leagueSize} Teams`;
+          
+          // Re-render everything
+          updateTeamCounter();
+          renderTeamGrid();
+          renderManagedTeamGrid();
+        });
+      });
+
       // Create League Modal: Team Selection
       const selectAllBtn = document.getElementById("selectAllTeams");
       const selectNoneBtn = document.getElementById("selectNoTeams");
       
       if (selectAllBtn) {
         selectAllBtn.addEventListener("click", () => {
-          selectedTeamIndices = new Set(Array.from({length: 30}, (_, i) => i));
+          selectedTeamIndices = new Set(Array.from({length: leagueSize}, (_, i) => i));
           updateTeamCounter();
           renderTeamGrid();
           renderManagedTeamGrid();
@@ -2652,9 +2768,9 @@
             return;
           }
           
-          if (selectedTeamIndices.size !== 30) {
+          if (selectedTeamIndices.size !== leagueSize) {
             if (errorMsg) errorMsg.style.display = "block";
-            showBanner("error", `❌ All 30 teams must be selected (currently ${selectedTeamIndices.size})`);
+            showBanner("error", `❌ Please select exactly ${leagueSize} teams (currently ${selectedTeamIndices.size})`);
             return;
           }
           
@@ -2684,8 +2800,9 @@
               };
             });
 
-          // Generate players for teams
-          const players = generatePlayersForTeams(selectedTeams);
+          // Generate players for teams (8 per team minimum)
+          const playersPerTeam = Math.max(8, Math.floor(80 / selectedTeams.length)); // Distribute ~80 total evenly
+          const players = generatePlayersForTeams(selectedTeams, playersPerTeam);
 
           // Create save
           const newId = await createSave(name);
@@ -2720,7 +2837,7 @@
             await refillSavesList();
             hideAllMenus();
             setRoute("home");
-            showBanner("success", `✓ League "${name}" created with 30 teams!`);
+            showBanner("success", `✓ League "${name}" created with ${leagueSize} teams!`);
           }
         });
       }
