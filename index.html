@@ -3217,7 +3217,9 @@
       saves: [],
       ui: {
         playerModalOpen: false,
-        playerModalId: null
+        playerModalId: null,
+        liveGameOpen: false,
+        liveGame: null
       }
     };
 
@@ -3410,6 +3412,396 @@
         .filter(p => p.teamId === teamId)
         .sort((a, b) => b.ovr - a.ovr)
         .slice(0, count);
+    }
+
+    /**
+     * Simulate a scheduled game without play-by-play
+     */
+    function simulateScheduledGame(gameId) {
+      const schedule = state.league.schedule;
+      const game = schedule.games.find(g => g.id === gameId);
+      
+      if (!game || game.played) {
+        showBanner("error", "❌ Game already played or not found");
+        return;
+      }
+
+      const homeTeam = teamById(game.homeTid);
+      const awayTeam = teamById(game.awayTid);
+      
+      // Calculate scores using team power ratings
+      const aPow = teamPower(homeTeam.id) + randInt(-6, 6);
+      const bPow = teamPower(awayTeam.id) + randInt(-6, 6);
+      const homeScore = clamp(Math.round(95 + (aPow - 60) * 1.2 + randInt(-10, 10)), 70, 145);
+      const awayScore = clamp(Math.round(95 + (bPow - 60) * 1.2 + randInt(-10, 10)), 70, 145);
+      
+      // Determine winner and update records
+      const homeWon = homeScore > awayScore;
+      
+      if (homeWon) {
+        homeTeam.wins += 1;
+        awayTeam.losses += 1;
+        homeTeam.homeWins += 1;
+        awayTeam.roadLosses += 1;
+      } else {
+        homeTeam.losses += 1;
+        awayTeam.wins += 1;
+        homeTeam.homeLosses += 1;
+        awayTeam.roadWins += 1;
+      }
+
+      // Conference records
+      if (homeTeam.conf === awayTeam.conf) {
+        if (homeWon) {
+          homeTeam.confWins += 1;
+          awayTeam.confLosses += 1;
+        } else {
+          homeTeam.confLosses += 1;
+          awayTeam.confWins += 1;
+        }
+      }
+
+      // Update streaks and last 10
+      for (const team of [homeTeam, awayTeam]) {
+        const result = (team.id === homeTeam.id && homeWon) || (team.id === awayTeam.id && !homeWon) ? 'W' : 'L';
+        team.last10.push(result);
+        if (team.last10.length > 10) team.last10.shift();
+        
+        if (team.last10.length > 0) {
+          const lastGame = team.last10[team.last10.length - 1];
+          if (lastGame === team.streakType || team.streakType === "—") {
+            team.streakType = lastGame;
+            team.streakLen += 1;
+          } else {
+            team.streakType = lastGame;
+            team.streakLen = 1;
+          }
+        }
+      }
+
+      // Distribute stats
+      distributeStats(homeTeam.id, homeWon);
+      distributeStats(awayTeam.id, !homeWon);
+
+      // Store result in schedule
+      game.played = true;
+      game.homeScore = homeScore;
+      game.awayScore = awayScore;
+      
+      showBanner("success", `✓ ${awayTeam.abbrev} ${awayScore} – ${homeTeam.abbrev} ${homeScore}`);
+    }
+
+    /**
+     * Initialize live game object for watching
+     */
+    function initLiveGame(gameId) {
+      const schedule = state.league.schedule;
+      const game = schedule.games.find(g => g.id === gameId);
+      
+      if (!game || game.played) {
+        showBanner("error", "❌ Game already played or not found");
+        return null;
+      }
+
+      const homeTeam = teamById(game.homeTid);
+      const awayTeam = teamById(game.awayTid);
+      
+      return {
+        gameId,
+        season: state.league.meta.season,
+        day: state.league.meta.day,
+        homeTid: game.homeTid,
+        awayTid: game.awayTid,
+        homeTeam: homeTeam.name,
+        awayTeam: awayTeam.name,
+        quarter: 1,
+        clock: 720, // 12 minutes = 720 seconds per quarter
+        homeScore: 0,
+        awayScore: 0,
+        possession: Math.random() < 0.5 ? game.homeTid : game.awayTid,
+        homeStats: {},
+        awayStats: {},
+        pbp: [],
+        isFinal: false,
+        isPlaying: false
+      };
+    }
+
+    /**
+     * Play next possession in the game
+     */
+    function playNextPossession(liveGame) {
+      if (liveGame.isFinal) return;
+      
+      const offenseTid = liveGame.possession;
+      const defenseTid = offenseTid === liveGame.homeTid ? liveGame.awayTid : liveGame.homeTid;
+      
+      const offenseTeam = teamById(offenseTid);
+      const defenseTeam = teamById(defenseTid);
+      
+      // Get on-court rosters
+      const offenseRoster = state.league.players.filter(p => p.teamId === offenseTid).sort((a,b) => b.ovr - a.ovr).slice(0, 5);
+      const defenseRoster = state.league.players.filter(p => p.teamId === defenseTid).sort((a,b) => b.ovr - a.ovr).slice(0, 5);
+      
+      if (offenseRoster.length === 0) return;
+      
+      // Pick random offensive player
+      const scorer = offenseRoster[randInt(0, offenseRoster.length - 1)];
+      const defender = defenseRoster[randInt(0, defenseRoster.length - 1)];
+      
+      // Initialize player stats if needed
+      if (!liveGame[offenseTid === liveGame.homeTid ? 'homeStats' : 'awayStats'][scorer.id]) {
+        const stats = { pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 };
+        liveGame[offenseTid === liveGame.homeTid ? 'homeStats' : 'awayStats'][scorer.id] = stats;
+      }
+      if (!liveGame[defenseTid === liveGame.homeTid ? 'homeStats' : 'awayStats'][defender.id]) {
+        const stats = { pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 };
+        liveGame[defenseTid === liveGame.homeTid ? 'homeStats' : 'awayStats'][defender.id] = stats;
+      }
+
+      // Determine action type weighted by player ratings
+      const ratings = scorer.ratings || {};
+      const rand = Math.random();
+      let action = 'midrange';
+      
+      if (rand < 0.05) action = 'turnover';
+      else if (rand < 0.15) action = 'foul';
+      else if (rand < 0.30) action = '3pt';
+      else if (rand < 0.55) action = 'midrange';
+      else if (rand < 0.80) action = 'drive';
+      else action = 'pass';
+
+      const playerStats = liveGame[offenseTid === liveGame.homeTid ? 'homeStats' : 'awayStats'][scorer.id];
+
+      switch (action) {
+        case 'turnover': {
+          playerStats.tov += 1;
+          const pbpTexts = [
+            `${scorer.firstName} turns the ball over.`,
+            `Turnover — bad pass by ${scorer.firstName}.`,
+            `${scorer.firstName} loses control of the ball.`
+          ];
+          liveGame.pbp.push({
+            q: liveGame.quarter,
+            t: formatClockTime(liveGame.clock),
+            text: pbpTexts[randInt(0, pbpTexts.length - 1)]
+          });
+          liveGame.possession = defenseTid;
+          break;
+        }
+        case 'foul': {
+          const foulTexts = [
+            `Foul on ${defender.firstName}.`,
+            `${defender.firstName} fouls ${scorer.firstName}.`,
+            `Personal foul on ${defender.firstName}.`
+          ];
+          liveGame.pbp.push({
+            q: liveGame.quarter,
+            t: formatClockTime(liveGame.clock),
+            text: foulTexts[randInt(0, foulTexts.length - 1)] + ` Free throws.`
+          });
+          // Free throws
+          const ftAttempts = randInt(1, 2);
+          playerStats.fta += ftAttempts;
+          const ftMakes = Math.random() < 0.75 ? ftAttempts : Math.max(0, ftAttempts - 1);
+          playerStats.ftm += ftMakes;
+          playerStats.pts += ftMakes;
+          if (offenseTid === liveGame.homeTid) liveGame.homeScore += ftMakes;
+          else liveGame.awayScore += ftMakes;
+          liveGame.possession = defenseTid;
+          break;
+        }
+        case '3pt': {
+          playerStats.tpa += 1;
+          const shooterRating = (ratings.tp || scorer.ovr) + randInt(-5, 5);
+          const defenderRating = (defenseRoster.find(p => p.id === defender.id)?.ratings?.perD || defender.ovr) + randInt(-5, 5);
+          const make = shooterRating + randInt(-3, 3) > defenderRating;
+          
+          if (make) {
+            playerStats.tpm += 1;
+            playerStats.fgm += 1;
+            playerStats.pts += 3;
+            if (offenseTid === liveGame.homeTid) liveGame.homeScore += 3;
+            else liveGame.awayScore += 3;
+            
+            const make3pts = [
+              `${scorer.firstName} nails a three!`,
+              `${scorer.firstName} buries a corner three!`,
+              `From deep — ${scorer.firstName} hits a three-pointer!`,
+              `${scorer.firstName} drains it from downtown!`
+            ];
+            liveGame.pbp.push({
+              q: liveGame.quarter,
+              t: formatClockTime(liveGame.clock),
+              text: make3pts[randInt(0, make3pts.length - 1)]
+            });
+          } else {
+            playerStats.fga += 1;
+            liveGame.pbp.push({
+              q: liveGame.quarter,
+              t: formatClockTime(liveGame.clock),
+              text: `${scorer.firstName} misses a three-pointer.`
+            });
+          }
+          liveGame.possession = defenseTid;
+          break;
+        }
+        case 'midrange': {
+          playerStats.fga += 1;
+          const shooterRating = (ratings.mid || scorer.ovr) + randInt(-5, 5);
+          const defenderRating = (defenseRoster.find(p => p.id === defender.id)?.ratings?.perD || defender.ovr) + randInt(-5, 5);
+          const make = shooterRating + randInt(-3, 3) > defenderRating;
+          
+          if (make) {
+            playerStats.fgm += 1;
+            playerStats.pts += 2;
+            if (offenseTid === liveGame.homeTid) liveGame.homeScore += 2;
+            else liveGame.awayScore += 2;
+            
+            const makeMid = [
+              `${scorer.firstName} hits a pull-up jumper.`,
+              `${scorer.firstName} drains the mid-range shot.`,
+              `Good! ${scorer.firstName} from the mid-post.`
+            ];
+            liveGame.pbp.push({
+              q: liveGame.quarter,
+              t: formatClockTime(liveGame.clock),
+              text: makeMid[randInt(0, makeMid.length - 1)]
+            });
+          } else {
+            liveGame.pbp.push({
+              q: liveGame.quarter,
+              t: formatClockTime(liveGame.clock),
+              text: `${scorer.firstName} misses the midrange shot.`
+            });
+          }
+          liveGame.possession = defenseTid;
+          break;
+        }
+        case 'drive': {
+          playerStats.fga += 1;
+          const driverRating = ((ratings.fin || 0) + (ratings.ath || 0) + (ratings.spd || 0)) / 300 * 100;
+          const defenderRating = (defenseRoster.find(p => p.id === defender.id)?.ratings?.perD || defender.ovr) + randInt(-5, 5);
+          const make = driverRating + randInt(-3, 3) > defenderRating;
+          
+          if (make) {
+            playerStats.fgm += 1;
+            playerStats.pts += 2;
+            if (offenseTid === liveGame.homeTid) liveGame.homeScore += 2;
+            else liveGame.awayScore += 2;
+            
+            const driveTexts = [
+              `${scorer.firstName} drives and finishes at the rim.`,
+              `${scorer.firstName} drives hard and scores!`,
+              `Layup! ${scorer.firstName} with the take.`
+            ];
+            liveGame.pbp.push({
+              q: liveGame.quarter,
+              t: formatClockTime(liveGame.clock),
+              text: driveTexts[randInt(0, driveTexts.length - 1)]
+            });
+          } else {
+            // Possible block
+            if (Math.random() < 0.3) {
+              const defenderStats = liveGame[defenseTid === liveGame.homeTid ? 'homeStats' : 'awayStats'][defender.id];
+              defenderStats.blk += 1;
+              liveGame.pbp.push({
+                q: liveGame.quarter,
+                t: formatClockTime(liveGame.clock),
+                text: `${defender.firstName} blocks ${scorer.firstName}!`
+              });
+            } else {
+              liveGame.pbp.push({
+                q: liveGame.quarter,
+                t: formatClockTime(liveGame.clock),
+                text: `${scorer.firstName} misses the layup.`
+              });
+            }
+          }
+          liveGame.possession = defenseTid;
+          break;
+        }
+        case 'pass': {
+          // Pass to assist
+          const passer = scorer;
+          const passerStats = playerStats;
+          const recipients = offenseRoster.filter(p => p.id !== passer.id);
+          const recipient = recipients[randInt(0, recipients.length - 1)];
+          
+          if (!liveGame[offenseTid === liveGame.homeTid ? 'homeStats' : 'awayStats'][recipient.id]) {
+            const stats = { pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 };
+            liveGame[offenseTid === liveGame.homeTid ? 'homeStats' : 'awayStats'][recipient.id] = stats;
+          }
+          
+          const recipientStats = liveGame[offenseTid === liveGame.homeTid ? 'homeStats' : 'awayStats'][recipient.id];
+          recipientStats.fga += 1;
+          
+          const shooterRating = (recipient.ratings?.fin || recipient.ovr) + randInt(-5, 5);
+          const defenderRating = (defenseRoster.find(p => p.id !== defender.id)?.ratings?.perD || defenseTeam.abbrev) + randInt(-5, 5);
+          const make = shooterRating + randInt(-3, 3) > defenderRating;
+          
+          if (make) {
+            recipientStats.fgm += 1;
+            recipientStats.pts += 2;
+            passerStats.ast += 1;
+            if (offenseTid === liveGame.homeTid) liveGame.homeScore += 2;
+            else liveGame.awayScore += 2;
+            
+            const assistTexts = [
+              `${passer.firstName} finds ${recipient.firstName} for the bucket. (Assist: ${passer.firstName})`,
+              `${recipient.firstName} scores on the pass from ${passer.firstName}. (Assist: ${passer.firstName})`,
+              `Good pass! ${recipient.firstName} finishes. (Assist: ${passer.firstName})`
+            ];
+            liveGame.pbp.push({
+              q: liveGame.quarter,
+              t: formatClockTime(liveGame.clock),
+              text: assistTexts[randInt(0, assistTexts.length - 1)]
+            });
+          } else {
+            liveGame.pbp.push({
+              q: liveGame.quarter,
+              t: formatClockTime(liveGame.clock),
+              text: `${recipient.firstName} misses the shot.`
+            });
+          }
+          liveGame.possession = defenseTid;
+          break;
+        }
+      }
+
+      // Advance clock
+      liveGame.clock -= randInt(6, 24);
+      
+      // Check for quarter end
+      if (liveGame.clock <= 0) {
+        if (liveGame.quarter < 4) {
+          liveGame.quarter += 1;
+          liveGame.clock = 720;
+          liveGame.pbp.push({
+            q: liveGame.quarter,
+            t: '12:00',
+            text: `End of Q${liveGame.quarter - 1}. Q${liveGame.quarter} begins.`
+          });
+        } else {
+          liveGame.isFinal = true;
+          liveGame.pbp.push({
+            q: 4,
+            t: '00:00',
+            text: `FINAL: ${liveGame.awayTeam} ${liveGame.awayScore} – ${liveGame.homeTeam} ${liveGame.homeScore}`
+          });
+        }
+      }
+
+      // Cap PBP size
+      if (liveGame.pbp.length > 400) {
+        liveGame.pbp = liveGame.pbp.slice(-250);
+      }
+    }
+
+    function formatClockTime(seconds) {
+      const mins = Math.floor(Math.abs(seconds) / 60);
+      const secs = Math.abs(seconds) % 60;
+      return `${mins}:${secs.toString().padStart(2, '0')}`;
     }
 
     function simDay() {
@@ -4434,10 +4826,14 @@
                             <td style="padding: 12px; text-align: left;">
                               ${homeLogo} ${escapeHtml(homeTeam.abbrev)}
                             </td>
-                            <td style="padding: 12px; text-align: center;">
-                              <span class="tag" style="background: ${game.played ? '#22c55e' : '#eab308'}; color: #000;">
-                                ${game.played ? 'Final' : 'Scheduled'}
-                              </span>
+                            <td style="padding: 12px; text-align: center; display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; align-items: center;">
+                              ${game.played ? `
+                                <span class="tag" style="background: #22c55e; color: #000;">Final</span>
+                                <button class="schedBoxScore" data-game-id="${game.id}" style="padding: 4px 8px; font-size: 11px; background: #444; border: 1px solid #666; border-radius: 3px; cursor: pointer; color: #fff;">Box Score</button>
+                              ` : `
+                                <button class="schedSimulate" data-game-id="${game.id}" style="padding: 4px 8px; font-size: 11px; background: #22c55e; border: none; border-radius: 3px; cursor: pointer; color: #000; font-weight: 600;">Sim</button>
+                                <button class="schedWatch" data-game-id="${game.id}" style="padding: 4px 8px; font-size: 11px; background: #3b82f6; border: none; border-radius: 3px; cursor: pointer; color: #fff;">Watch</button>
+                              `}
                             </td>
                           </tr>
                         `;
@@ -4493,8 +4889,11 @@
                           <td style="padding: 8px; text-align: left;">
                             ${homeLogo} ${escapeHtml(homeTeam.abbrev)}
                           </td>
-                          <td style="padding: 8px; text-align: center;">
-                            ${game.played ? '<span class="tag" style="background: #22c55e; color: #000; font-size: 10px;">✓</span>' : (isUpcoming ? '<span class="tag" style="background: #666; color: #fff; font-size: 10px;">Upcoming</span>' : '<span class="tag" style="background: #333; color: #888; font-size: 10px;">Past</span>')}
+                          <td style="padding: 8px; text-align: center; display: flex; gap: 4px; justify-content: center; flex-wrap: wrap;">
+                            ${game.played ? '<span class="tag" style="background: #22c55e; color: #000; font-size: 10px;">✓</span>' : (isUpcoming ? `
+                              <button class="schedSimulate" data-game-id="${game.id}" style="padding: 2px 6px; font-size: 9px; background: #22c55e; border: none; border-radius: 2px; cursor: pointer; color: #000; font-weight: 600;">Sim</button>
+                              <button class="schedWatch" data-game-id="${game.id}" style="padding: 2px 6px; font-size: 9px; background: #3b82f6; border: none; border-radius: 2px; cursor: pointer; color: #fff;">Watch</button>
+                            ` : '<span class="tag" style="background: #333; color: #888; font-size: 10px;">Past</span>')}
                           </td>
                         </tr>
                       `;
@@ -4504,6 +4903,118 @@
               </div>
             </div>
           ` : ''}
+        </div>
+      `;
+    }
+
+    /**
+     * Watch Game modal view - live play-by-play
+     */
+    function viewWatchGame() {
+      const lg = state.ui.liveGame;
+      if (!lg) return '';
+
+      const homeTeam = teamById(lg.homeTid);
+      const awayTeam = teamById(lg.awayTid);
+      const homeLogo = homeTeam.color ? generateTeamLogo(homeTeam.abbrev, homeTeam.color, 32) : '';
+      const awayLogo = awayTeam.color ? generateTeamLogo(awayTeam.abbrev, awayTeam.color, 32) : '';
+
+      // Get top scorers
+      const homeStatKeys = Object.keys(lg.homeStats);
+      const awayStatKeys = Object.keys(lg.awayStats);
+      
+      const homeLeaders = homeStatKeys.length > 0 ? homeStatKeys
+        .map(pid => ({ ...state.league.players.find(p => p.id === pid), stats: lg.homeStats[pid] }))
+        .sort((a, b) => (b.stats?.pts || 0) - (a.stats?.pts || 0))
+        .slice(0, 3) : [];
+      
+      const awayLeaders = awayStatKeys.length > 0 ? awayStatKeys
+        .map(pid => ({ ...state.league.players.find(p => p.id === pid), stats: lg.awayStats[pid] }))
+        .sort((a, b) => (b.stats?.pts || 0) - (a.stats?.pts || 0))
+        .slice(0, 3) : [];
+
+      return `
+        <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px; overflow-y: auto;">
+          <div style="background: #0f0f0f; border-radius: 12px; max-width: 900px; width: 100%; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.8);">
+            
+            <!-- Header -->
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 20px; border-bottom: 1px solid #333;">
+              <div style="flex: 1;">
+                <div style="font-size: 24px; font-weight: 700; margin-bottom: 4px;">
+                  ${awayLogo} ${awayTeam.abbrev} @ ${homeTeam.abbrev} ${homeLogo}
+                </div>
+                <div style="font-size: 12px; color: #888;">
+                  Season ${lg.season}, Day ${lg.day}
+                </div>
+              </div>
+              <button id="watchExitBtn" style="background: #444; border: 1px solid #666; color: #fff; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: 600;">✕ Exit</button>
+            </div>
+
+            <!-- Scoreboard and Leaders -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 20px; border-bottom: 1px solid #333;">
+              
+              <!-- Away Side -->
+              <div>
+                <div style="background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.3); border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+                  <div style="text-align: center; font-size: 32px; font-weight: 700; color: #60a5fa; margin-bottom: 4px;">${lg.awayScore}</div>
+                  <div style="text-align: center; font-size: 14px; font-weight: 600;">${awayTeam.name}</div>
+                </div>
+                <div style="font-size: 11px; color: #888; font-weight: 600; text-transform: uppercase; margin-bottom: 6px;">Leaders</div>
+                ${awayLeaders.map(p => `
+                  <div style="font-size: 12px; padding: 4px; color: #ccc; border-bottom: 1px solid #333;">
+                    ${p.firstName} ${p.lastName}: <span style="color: #60a5fa; font-weight: 600;">${p.stats.pts || 0} pts</span> · ${p.stats.reb || 0} reb · ${p.stats.ast || 0} ast
+                  </div>
+                `).join('')}
+              </div>
+
+              <!-- Home Side -->
+              <div>
+                <div style="background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.3); border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+                  <div style="text-align: center; font-size: 32px; font-weight: 700; color: #22c55e; margin-bottom: 4px;">${lg.homeScore}</div>
+                  <div style="text-align: center; font-size: 14px; font-weight: 600;">${homeTeam.name}</div>
+                </div>
+                <div style="font-size: 11px; color: #888; font-weight: 600; text-transform: uppercase; margin-bottom: 6px;">Leaders</div>
+                ${homeLeaders.map(p => `
+                  <div style="font-size: 12px; padding: 4px; color: #ccc; border-bottom: 1px solid #333;">
+                    ${p.firstName} ${p.lastName}: <span style="color: #22c55e; font-weight: 600;">${p.stats.pts || 0} pts</span> · ${p.stats.reb || 0} reb · ${p.stats.ast || 0} ast
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+
+            <!-- Game Status -->
+            <div style="padding: 12px 20px; background: rgba(0,0,0,0.3); text-align: center; font-size: 13px; font-weight: 600;">
+              ${lg.isFinal ? '<span style="color: #ef4444;">FINAL</span>' : `<span style="color: #eab308;">Q${lg.quarter} · ${formatClockTime(lg.clock)}</span>`}
+            </div>
+
+            <!-- Controls -->
+            <div style="display: flex; gap: 8px; padding: 12px 20px; border-bottom: 1px solid #333;">
+              ${!lg.isFinal ? `
+                <button id="watchPlayPauseBtn" style="flex: 1; padding: 8px; background: ${lg.isPlaying ? '#ef4444' : '#22c55e'}; border: none; border-radius: 4px; cursor: pointer; color: ${lg.isPlaying ? '#fff' : '#000'}; font-weight: 600;">
+                  ${lg.isPlaying ? '⏸ Pause' : '▶ Play'}
+                </button>
+                <button id="watchSimToEndBtn" style="flex: 1; padding: 8px; background: #3b82f6; border: none; border-radius: 4px; cursor: pointer; color: #fff; font-weight: 600;">
+                  ⏩ Sim to End
+                </button>
+              ` : ''}
+            </div>
+
+            <!-- Play-by-Play -->
+            <div id="watchPBPFeed" style="padding: 20px; height: 300px; overflow-y: auto; background: rgba(0,0,0,0.2);">
+              ${lg.pbp.length === 0 ? `
+                <div style="text-align: center; color: #888; font-size: 13px; padding: 40px 0;">
+                  Game starting...
+                </div>
+              ` : `
+                ${lg.pbp.map(ev => `
+                  <div style="padding: 6px 0; border-bottom: 1px solid #333; font-size: 12px;">
+                    <span style="color: #888; font-weight: 600;">Q${ev.q} ${ev.t}</span><br/>
+                    <span style="color: #ccc;">${ev.text}</span>
+                  </div>
+                `).reverse().join('')}
+              `}
+            </div>
+          </div>
         </div>
       `;
     }
@@ -5193,6 +5704,172 @@
             showBanner("success", `✓ Simulated day ${state.league.meta.day}`);
           });
         }
+
+        // Individual game simulate buttons
+        document.querySelectorAll(".schedSimulate").forEach(btn => {
+          btn.addEventListener("click", async () => {
+            const gameId = btn.dataset.gameId;
+            simulateScheduledGame(gameId);
+            await saveCurrentLeague();
+            render();
+          });
+        });
+
+        // Individual game watch buttons
+        document.querySelectorAll(".schedWatch").forEach(btn => {
+          btn.addEventListener("click", () => {
+            const gameId = btn.dataset.gameId;
+            const lg = initLiveGame(gameId);
+            if (lg) {
+              state.ui.liveGameOpen = true;
+              state.ui.liveGame = lg;
+              render();
+            }
+          });
+        });
+      }
+
+      // WATCH GAME MODAL HANDLERS
+      if (state.ui.liveGameOpen && state.ui.liveGame) {
+        // Render modal
+        const modalRoot = document.createElement("div");
+        modalRoot.id = "watchGameModalRoot";
+        modalRoot.innerHTML = viewWatchGame();
+        document.body.appendChild(modalRoot);
+
+        // Exit button
+        const exitBtn = document.getElementById("watchExitBtn");
+        if (exitBtn) {
+          exitBtn.addEventListener("click", async () => {
+            // Save game result to schedule
+            const lg = state.ui.liveGame;
+            const schedule = state.league.schedule;
+            const game = schedule.games.find(g => g.id === lg.gameId);
+            
+            if (game) {
+              game.played = true;
+              game.homeScore = lg.homeScore;
+              game.awayScore = lg.awayScore;
+              
+              // Store PBP (capped)
+              if (lg.pbp.length > 250) {
+                game.pbp = lg.pbp.slice(-250);
+              } else {
+                game.pbp = lg.pbp;
+              }
+
+              // Update team records
+              const homeTeam = teamById(game.homeTid);
+              const awayTeam = teamById(game.awayTid);
+              
+              if (lg.homeScore > lg.awayScore) {
+                homeTeam.wins += 1;
+                awayTeam.losses += 1;
+                homeTeam.homeWins += 1;
+                awayTeam.roadLosses += 1;
+              } else {
+                awayTeam.wins += 1;
+                homeTeam.losses += 1;
+                awayTeam.roadWins += 1;
+                homeTeam.homeLosses += 1;
+              }
+              
+              // Conference wins/losses
+              if (homeTeam.conf === awayTeam.conf) {
+                if (lg.homeScore > lg.awayScore) {
+                  homeTeam.confWins += 1;
+                  awayTeam.confLosses += 1;
+                } else {
+                  awayTeam.confWins += 1;
+                  homeTeam.confLosses += 1;
+                }
+              }
+              
+              // Update last10 and streak
+              for (const team of [homeTeam, awayTeam]) {
+                const result = (lg.homeScore > lg.awayScore && team.id === homeTeam.id) || (lg.awayScore > lg.homeScore && team.id === awayTeam.id) ? 'W' : 'L';
+                team.last10.push(result);
+                if (team.last10.length > 10) team.last10.shift();
+                
+                if (team.last10.length > 0) {
+                  const lastGame = team.last10[team.last10.length - 1];
+                  if (lastGame === team.streakType || team.streakType === "—") {
+                    team.streakType = lastGame;
+                    team.streakLen += 1;
+                  } else {
+                    team.streakType = lastGame;
+                    team.streakLen = 1;
+                  }
+                }
+              }
+            }
+
+            state.ui.liveGameOpen = false;
+            state.ui.liveGame = null;
+            await saveCurrentLeague();
+            render();
+            showBanner("success", "✓ Game saved");
+          });
+        }
+
+        // Play/Pause button
+        const playPauseBtn = document.getElementById("watchPlayPauseBtn");
+        if (playPauseBtn) {
+          playPauseBtn.addEventListener("click", () => {
+            state.ui.liveGame.isPlaying = !state.ui.liveGame.isPlaying;
+            
+            if (state.ui.liveGame.isPlaying) {
+              // Start auto-play
+              const playInterval = setInterval(() => {
+                if (!state.ui.liveGame || !state.ui.liveGame.isPlaying) {
+                  clearInterval(playInterval);
+                  render();
+                  return;
+                }
+                
+                playNextPossession(state.ui.liveGame);
+                render();
+                
+                // Update modal only
+                const modalRoot = document.getElementById("watchGameModalRoot");
+                if (modalRoot) {
+                  const watchPBPFeed = document.getElementById("watchPBPFeed");
+                  if (watchPBPFeed) {
+                    watchPBPFeed.innerHTML = state.ui.liveGame.pbp.length === 0 ? `
+                      <div style="text-align: center; color: #888; font-size: 13px; padding: 40px 0;">
+                        Game starting...
+                      </div>
+                    ` : state.ui.liveGame.pbp.map(ev => `
+                      <div style="padding: 6px 0; border-bottom: 1px solid #333; font-size: 12px;">
+                        <span style="color: #888; font-weight: 600;">Q${ev.q} ${ev.t}</span><br/>
+                        <span style="color: #ccc;">${ev.text}</span>
+                      </div>
+                    `).reverse().join('');
+                    watchPBPFeed.scrollTop = watchPBPFeed.scrollHeight;
+                  }
+                }
+              }, 200); // Update every 200ms
+            } else {
+              render();
+            }
+          });
+        }
+
+        // Sim to End button
+        const simToEndBtn = document.getElementById("watchSimToEndBtn");
+        if (simToEndBtn) {
+          simToEndBtn.addEventListener("click", () => {
+            const lg = state.ui.liveGame;
+            while (!lg.isFinal) {
+              playNextPossession(lg);
+            }
+            render();
+          });
+        }
+      } else {
+        // Remove modal if it's open
+        const modalRoot = document.getElementById("watchGameModalRoot");
+        if (modalRoot) modalRoot.remove();
       }
     }
 
