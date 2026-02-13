@@ -1108,6 +1108,7 @@
         <a href="#league" data-route="league"><span>🌍 League</span><span>›</span></a>
         <a href="#standings" data-route="standings"><span>📊 Standings</span><span>›</span></a>
         <a href="#teams" data-route="teams"><span>🏟️ Teams</span><span>›</span></a>
+        <a href="#rotations" data-route="rotations"><span>🧩 Rotations</span><span>›</span></a>
         <a href="#players" data-route="players"><span>🧑‍🦱 Players</span><span>›</span></a>
       </div>
 
@@ -1199,7 +1200,7 @@
      *   v0: Original - implicit version if schemaVersion missing
      *   v1: Core structure (meta, teams, players, log)
      **********************/
-    const CURRENT_SCHEMA_VERSION = 8;
+    const CURRENT_SCHEMA_VERSION = 9;
     const inMemorySaves = [];
     const inMemoryLeagues = {};
 
@@ -1885,6 +1886,159 @@
       return (clutch - 50) * 0.02; // Max +/- 1 OVR equivalent in clutch moments
     }
 
+    /**********************
+     * ROTATIONS SYSTEM
+     **********************/
+
+    /**
+     * Initialize default rotations for a team
+     * Called on team creation or migration
+     */
+    function initializeRotations(teamId, players) {
+      const roster = players.filter(p => p.teamId === teamId).sort((a,b) => b.ovr - a.ovr);
+      const positions = ["PG", "SG", "SF", "PF", "C"];
+      
+      const rotations = {
+        starters: {},
+        benchOrder: { PG: [], SG: [], SF: [], PF: [], C: [] },
+        minutes: {},
+        autoFill: true,
+        coachAdjustments: false
+      };
+
+      // Pick best player by position for starters
+      positions.forEach(pos => {
+        const posPlayers = roster.filter(p => p.pos === pos);
+        if (posPlayers.length > 0) {
+          rotations.starters[pos] = posPlayers[0].id;
+          rotations.minutes[posPlayers[0].id] = 32; // Starter default: 32 min
+        }
+      });
+
+      // Populate bench orders by position
+      positions.forEach(pos => {
+        const posPlayers = roster.filter(p => p.pos === pos && p.id !== rotations.starters[pos]);
+        posPlayers.forEach((p, idx) => {
+          rotations.benchOrder[pos].push(p.id);
+          // Bench: 20+ for top 2, 10-15 for others
+          if (idx === 0) rotations.minutes[p.id] = 20;
+          else if (idx === 1) rotations.minutes[p.id] = 15;
+          else rotations.minutes[p.id] = 8;
+        });
+      });
+
+      // Add all players with non-zero minutes (fill gaps)
+      roster.forEach(p => {
+        if (!rotations.minutes[p.id]) {
+          rotations.minutes[p.id] = 5; // Default backup: 5 min
+        }
+      });
+
+      return rotations;
+    }
+
+    /**
+     * Get total minutes allocated in a rotation
+     */
+    function getTotalMinutes(rotations) {
+      return Object.values(rotations.minutes || {}).reduce((a,b) => a+b, 0);
+    }
+
+    /**
+     * Get minutes share for each player (0..1 range)
+     */
+    function getMinutesShare(teamId) {
+      const rotations = state.league.rotations?.[teamId];
+      if (!rotations || !rotations.minutes) {
+        // Fallback to OVR-based distribution
+        const roster = state.league.players.filter(p => p.teamId === teamId).sort((a,b) => b.ovr - a.ovr);
+        const totalOvr = roster.reduce((s, p) => s + p.ovr, 0);
+        const shareMap = {};
+        roster.forEach(p => {
+          shareMap[p.id] = (p.ovr / totalOvr) * 0.6 + 0.05; // Top heavy
+        });
+        return shareMap;
+      }
+
+      const totalMin = getTotalMinutes(rotations);
+      const shareMap = {};
+      Object.entries(rotations.minutes).forEach(([playerId, min]) => {
+        shareMap[playerId] = min / 240; // 240 total minutes in game
+      });
+      return shareMap;
+    }
+
+    /**
+     * Validate rotation assignment (no duplicate starters)
+     */
+    function validateRotation(rotations) {
+      const starterIds = Object.values(rotations.starters || {});
+      const seen = new Set();
+      for (let id of starterIds) {
+        if (seen.has(id)) return false;
+        seen.add(id);
+      }
+      return true;
+    }
+
+    /**
+     * Generate diagnostics for rotation (warnings/issues)
+     */
+    function getRotationDiagnostics(teamId) {
+      const rotations = state.league.rotations?.[teamId];
+      if (!rotations) return { errors: [], warnings: [] };
+
+      const errors = [], warnings = [];
+      const roster = state.league.players.filter(p => p.teamId === teamId);
+      const totalMin = getTotalMinutes(rotations);
+
+      if (totalMin < 240) warnings.push(`You have ${240 - totalMin} unassigned minutes.`);
+      else if (totalMin > 240) warnings.push(`You are ${totalMin - 240} minutes over.`);
+
+      // Check for unassigned players
+      const assigned = new Set();
+      Object.values(rotations.starters || {}).forEach(id => assigned.add(id));
+      Object.values(rotations.benchOrder || {}).forEach(arr => arr.forEach(id => assigned.add(id)));
+      Object.keys(rotations.minutes || {}).forEach(id => {
+        if (rotations.minutes[id] > 0 && !assigned.has(id)) {
+          warnings.push(`Player ${id.slice(0,8)} has minutes but no position slot.`);
+        }
+      });
+
+      // Validate no duplicate starters
+      if (!validateRotation(rotations)) {
+        errors.push("Duplicate starter assignment detected.");
+      }
+
+      return { errors, warnings };
+    }
+
+    /**
+     * Auto-fix minutes to equal 240 total
+     */
+    function autoFixMinutes(teamId) {
+      const rotations = state.league.rotations?.[teamId];
+      if (!rotations) return;
+
+      const currentTotal = getTotalMinutes(rotations);
+      if (currentTotal === 0) return;
+
+      const scale = 240 / currentTotal;
+      Object.keys(rotations.minutes).forEach(playerId => {
+        rotations.minutes[playerId] = Math.round(rotations.minutes[playerId] * scale);
+      });
+
+      // Ensure exact 240
+      const newTotal = getTotalMinutes(rotations);
+      const diff = 240 - newTotal;
+      if (diff !== 0) {
+        const starters = Object.values(rotations.starters || {});
+        if (starters.length > 0) {
+          rotations.minutes[starters[0]] = (rotations.minutes[starters[0]] || 0) + diff;
+        }
+      }
+    }
+
     /**
      * Generate player bio (nationality, hometown, college)
      */
@@ -2228,6 +2382,13 @@
         teams,
         players,
         log: ["League created."],
+        rotations: (() => {
+          const rot = {};
+          teams.forEach(team => {
+            rot[team.id] = initializeRotations(team.id, players);
+          });
+          return rot;
+        })(),
         schemaVersion: CURRENT_SCHEMA_VERSION
       };
     }
@@ -2493,6 +2654,24 @@
             v = 8;
             league.schemaVersion = 8;
             console.log("[Migration] ✓ v7 → v8 complete");
+          
+          } else if (v === 8) {
+            // v8 → v9: Initialize rotations for all teams
+            console.log("[Migration] Applying v8 → v9: Initializing rotation system");
+            
+            league.rotations = league.rotations || {};
+            league.players = league.players || [];
+            league.teams = league.teams || [];
+            
+            league.teams.forEach(team => {
+              if (!league.rotations[team.id]) {
+                league.rotations[team.id] = initializeRotations(team.id, league.players);
+              }
+            });
+            
+            v = 9;
+            league.schemaVersion = 9;
+            console.log("[Migration] ✓ v8 → v9 complete");
           }
           
           else {
@@ -2891,24 +3070,49 @@
 
     function distributeStats(teamId, won) {
       const roster = state.league.players.filter(p => p.teamId === teamId).sort((a,b) => b.ovr - a.ovr);
-      const top = roster.slice(0, 3);
-      const others = roster.slice(3);
+      const minutesShare = getMinutesShare(teamId);
       const teamPts = randInt(90, 130);
 
-      function addLine(p) {
-        const shareMin = top.includes(p) ? 18 : 10;
-        const shareMax = top.includes(p) ? 30 : 18;
-        const pts = clamp(Math.round(teamPts * (randInt(shareMin, shareMax)/100)), 6, 45);
-        p.stats.gp += 1;
-        p.stats.pts += pts;
-        p.stats.reb += randInt(1, 12);
-        p.stats.ast += randInt(0, 11);
-        p.mood = clamp(p.mood + (won ? randInt(0,2) : -randInt(0,2)), 0, 100);
-        p.stamina = clamp(p.stamina - randInt(2, 6), 0, 100);
-      }
+      // Build offensive/assist/rebound weights based on ratings and minutes
+      const weights = roster.map(p => {
+        const share = minutesShare[p.id] || 0.05;
+        const mins = Math.max(0, Math.round(share * 240));
+        const r = p.ratings || {};
+        const offFactor = ((r.fin || p.ovr) + (r.mid || p.ovr) + (r.tp || p.ovr) + (r.drb || p.ovr)) / 400; // 0..1-ish
+        const astFactor = ((r.pas || p.ovr) / 100);
+        const rebFactor = ((r.reb || p.ovr) / 100) + (p.pos === 'C' || p.pos === 'PF' ? 0.1 : 0);
+        return { id: p.id, mins, share, offFactor, astFactor, rebFactor };
+      });
 
-      top.forEach(p => addLine(p));
-      others.slice(0, 2).forEach(p => addLine(p));
+      const totalOff = weights.reduce((s,w) => s + (w.share * (0.6 + w.offFactor)), 0);
+      const totalAst = weights.reduce((s,w) => s + (w.share * (0.5 + w.astFactor)), 0);
+      const totalReb = weights.reduce((s,w) => s + (w.share * (0.5 + w.rebFactor)), 0);
+
+      // Allocate stats proportionally
+      roster.forEach(p => {
+        const w = weights.find(x => x.id === p.id);
+        if (!w || w.mins <= 0) return;
+
+        // Points allocation proportional to offensive weight
+        const offWeight = w.share * (0.6 + w.offFactor);
+        const pts = Math.round(teamPts * (offWeight / Math.max(0.0001, totalOff)));
+
+        // Assists and rebounds similarly
+        const ast = Math.round( randInt(0, Math.max(1, 8)) * ( (w.share * (0.5 + w.astFactor)) / Math.max(0.0001, totalAst) ) );
+        const reb = Math.round( randInt(0, Math.max(1, 10)) * ( (w.share * (0.5 + w.rebFactor)) / Math.max(0.0001, totalReb) ) );
+
+        p.stats.gp += 1;
+        p.stats.pts += clamp(pts, 0, 60);
+        p.stats.reb += clamp(reb, 0, 30);
+        p.stats.ast += clamp(ast, 0, 20);
+
+        // Mood adjustment
+        p.mood = clamp(p.mood + (won ? randInt(0,2) : -randInt(0,2)), 0, 100);
+
+        // Stamina loss proportional to minutes
+        const staminaLoss = Math.round(w.mins * 0.15) + randInt(-2, 2);
+        p.stamina = clamp(p.stamina - staminaLoss, 0, 100);
+      });
     }
 
     // Team Dashboard Helper Functions
@@ -3586,6 +3790,11 @@
               <div class="bd">
                 <!-- Quick Actions -->
                 <div style="display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap;">
+                  ${state.userTeamId === state.selectedTeamId ? `
+                    <button style="flex: 1; min-width: 120px; background: #22c55e; color: #000; border: none; padding: 8px; border-radius: 4px; cursor: default; font-weight: 600;">✓ Your Team</button>
+                  ` : `
+                    <button id="manageTeamBtn" class="secondary" style="flex: 1; min-width: 120px;">Manage This Team</button>
+                  `}
                   ${state.userTeamId && state.userTeamId !== state.selectedTeamId ? `
                     <button id="viewMyTeamBtn" class="secondary" style="flex: 1; min-width: 120px;">View My Team</button>
                   ` : ''}
@@ -3685,6 +3894,184 @@
                 `).join("")}
               </tbody>
             </table>
+          </div>
+        </div>
+      `;
+    }
+
+    function viewRotations() {
+      const managedTeamId = state.userTeamId;
+      if (!managedTeamId) {
+        return `
+          <div class="grid">
+            <div class="card">
+              <div class="bd" style="text-align: center; padding: 40px; color: #888;">
+                <div style="font-size: 24px; margin-bottom: 12px;">🧩</div>
+                <div style="font-size: 14px;">Select a team to manage to edit rotations</div>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      const team = state.league.teams.find(t => t.id === managedTeamId);
+      const roster = state.league.players.filter(p => p.teamId === managedTeamId).sort((a,b) => b.ovr - a.ovr);
+      const rotations = state.league.rotations?.[managedTeamId] || initializeRotations(managedTeamId, state.league.players);
+      
+      const totalMin = getTotalMinutes(rotations);
+      const minDiff = 240 - totalMin;
+      const diagnostics = getRotationDiagnostics(managedTeamId);
+      
+      const positions = ["PG", "SG", "SF", "PF", "C"];
+
+      return `
+        <div class="grid">
+          <!-- Header -->
+          <div class="card" style="grid-column: 1 / -1;">
+            <div class="hd">
+              <h2>Rotations – ${escapeHtml(team.name)}</h2>
+              <div class="hint">Set starters, bench order, and target minutes</div>
+            </div>
+            <div class="bd" style="display: flex; gap: 20px; flex-wrap: wrap;">
+              <div>
+                <div style="font-size: 12px; color: #888; text-transform: uppercase;">Total Minutes</div>
+                <div style="font-size: 20px; font-weight: 600; color: ${minDiff === 0 ? '#22c55e' : minDiff < 0 ? '#ef4444' : '#eab308'};">${totalMin}/240</div>
+                ${minDiff !== 0 ? `<div style="font-size: 11px; color: #888; margin-top: 4px;">${minDiff > 0 ? '+' : ''}${minDiff} min</div>` : ''}
+              </div>
+              
+              ${diagnostics.warnings.length > 0 ? `
+                <div>
+                  <div style="font-size: 12px; color: #888; text-transform: uppercase;">Warnings</div>
+                  <div style="font-size: 12px; color: #eab308; margin-top: 4px;">
+                    ${diagnostics.warnings.map(w => `<div>⚠ ${w}</div>`).join('')}
+                  </div>
+                </div>
+              ` : ''}
+              
+              ${diagnostics.errors.length > 0 ? `
+                <div>
+                  <div style="font-size: 12px; color: #888; text-transform: uppercase;">Errors</div>
+                  <div style="font-size: 12px; color: #ef4444; margin-top: 4px;">
+                    ${diagnostics.errors.map(e => `<div>✕ ${e}</div>`).join('')}
+                  </div>
+                </div>
+              ` : ''}
+            </div>
+          </div>
+
+          <!-- Buttons -->
+          <div class="card" style="grid-column: 1 / -1;">
+            <div class="bd" style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <button id="rotAutoStartersBtn" class="btn">Auto-Set Starters (Best OVR)</button>
+              <button id="rotAutoBenchBtn" class="btn">Auto-Set Bench</button>
+              <button id="rotAutoFixMinBtn" class="btn">Auto-Fix Minutes to 240</button>
+              <button id="rotResetBtn" class="btn">Reset to Default</button>
+            </div>
+          </div>
+
+          <!-- Depth Chart -->
+          <div class="card" style="grid-column: 1 / -1;">
+            <div class="hd"><h3>Depth Chart</h3></div>
+            <div class="bd" style="overflow-x: auto;">
+              <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; min-width: 800px;">
+                ${positions.map(pos => {
+                  const starter = rotations.starters[pos];
+                  const starterPlayer = starter ? roster.find(p => p.id === starter) : null;
+                  const benchIds = rotations.benchOrder[pos] || [];
+                  const benchPlayers = benchIds.map(id => roster.find(p => p.id === id)).filter(p => p);
+                  
+                  return `
+                    <div style="border: 1px solid rgba(96,165,250,0.2); border-radius: 8px; padding: 12px; background: rgba(96,165,250,0.05);">
+                      <div style="font-size: 14px; font-weight: 600; color: #60a5fa; margin-bottom: 12px;">${pos}</div>
+                      
+                      <!-- Starter slot -->
+                      <div style="margin-bottom: 12px; padding: 8px; background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.3); border-radius: 6px;">
+                        <div style="font-size: 11px; color: #888; text-transform: uppercase; margin-bottom: 4px;">Starter</div>
+                        <select class="rotStarter" data-pos="${pos}" style="width: 100%; padding: 8px; background: #1a1a1a; color: #fff; border: 1px solid #444; border-radius: 4px; font-size: 12px;">
+                          <option value="">— Pick —</option>
+                          ${roster.filter(p => p.pos === pos).map(p => `
+                            <option value="${p.id}" ${p.id === starter ? 'selected' : ''}>${p.firstName} ${p.lastName} (${p.ovr})</option>
+                          `).join('')}
+                        </select>
+                      </div>
+                      
+                      <!-- Bench list -->
+                      <div style="font-size: 11px; color: #888; text-transform: uppercase; margin-bottom: 6px;">Bench</div>
+                      <div class="rotBench" data-pos="${pos}" style="background: rgba(0,0,0,0.3); border-radius: 4px; min-height: 100px; padding: 8px;">
+                        ${benchPlayers.length === 0 ? `
+                          <div style="font-size: 11px; color: #666; text-align: center; padding: 20px 0;">No bench players</div>
+                        ` : `
+                          <div>
+                            ${benchPlayers.map((p, idx) => `
+                              <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px; background: rgba(96,165,250,0.1); border-radius: 4px; margin-bottom: 4px; font-size: 12px;">
+                                <span>${p.firstName.charAt(0)}. ${p.lastName} (${p.ovr})</span>
+                                <button class="rotBenchRemove" data-pos="${pos}" data-id="${p.id}" style="background: #7f1d1d; border: none; color: #fca5a5; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">Remove</button>
+                              </div>
+                            `).join('')}
+                          </div>
+                        `}
+                      </div>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            </div>
+          </div>
+
+          <!-- Minutes Editor -->
+          <div class="card" style="grid-column: 1 / -1;">
+            <div class="hd"><h3>Target Minutes</h3></div>
+            <div class="bd">
+              <table style="width: 100%; font-size: 13px;">
+                <thead>
+                  <tr style="border-bottom: 1px solid rgba(96,165,250,0.2);">
+                    <th style="text-align: left; padding: 8px;">Player</th>
+                    <th style="text-align: center; padding: 8px;">Pos</th>
+                    <th style="text-align: center; padding: 8px;">OVR</th>
+                    <th style="text-align: center; padding: 8px;">Archetype</th>
+                    <th style="text-align: center; padding: 8px;">Target Min</th>
+                    <th style="text-align: center; padding: 8px;">Role</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${roster.map(p => {
+                    const min = rotations.minutes[p.id] || 0;
+                    const isStarter = Object.values(rotations.starters || {}).includes(p.id);
+                    const isBench = Object.values(rotations.benchOrder || {}).some(arr => arr.includes(p.id));
+                    const role = isStarter ? 'Starter' : isBench ? 'Bench' : 'Reserve';
+                    
+                    return `
+                      <tr style="border-bottom: 1px solid rgba(96,165,250,0.1);">
+                        <td style="padding: 8px;">${p.firstName} ${p.lastName}</td>
+                        <td style="text-align: center; padding: 8px;">${p.pos}</td>
+                        <td style="text-align: center; padding: 8px; color: #60a5fa; font-weight: 600;">${p.ovr}</td>
+                        <td style="text-align: center; padding: 8px; font-size: 11px; color: #d8b4fe;">${p.archetype || '—'}</td>
+                        <td style="text-align: center; padding: 8px;">
+                          <input type="number" class="rotMinutes" data-id="${p.id}" value="${min}" min="0" max="48" style="width: 50px; padding: 4px; background: #1a1a1a; color: #fff; border: 1px solid #444; border-radius: 3px; text-align: center;">
+                        </td>
+                        <td style="text-align: center; padding: 8px; font-size: 11px;">
+                          <span style="background: ${isStarter ? 'rgba(34,197,94,0.2); color: #86efac' : isBench ? 'rgba(96,165,250,0.2); color: #93c5fd' : 'rgba(107,114,128,0.2); color: #d1d5db'}; padding: 2px 8px; border-radius: 3px;">${role}</span>
+                        </td>
+                      </tr>
+                    `;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Coach Settings -->
+          <div class="card" style="grid-column: 1 / -1;">
+            <div class="hd"><h3>Coach Settings</h3></div>
+            <div class="bd">
+              <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                <input type="checkbox" id="rotCoachAdj" ${rotations.coachAdjustments ? 'checked' : ''} style="width: 16px; height: 16px; cursor: pointer;">
+                <span>Coach Adjustments (auto-modify minutes for stamina/morale)</span>
+              </label>
+              <div style="font-size: 11px; color: #888; margin-top: 8px;">
+                When enabled, coach will make subtle adjustments to player minutes based on stamina levels and morale.
+              </div>
+            </div>
           </div>
         </div>
       `;
@@ -4052,6 +4439,7 @@
         else if (state.route === "league") view.innerHTML = viewLeague();
         else if (state.route === "standings") view.innerHTML = viewStandings();
         else if (state.route === "teams") view.innerHTML = viewTeams();
+        else if (state.route === "rotations") view.innerHTML = viewRotations();
         else if (state.route === "players") view.innerHTML = viewPlayers();
         else view.innerHTML = `<div class="card"><div class="bd">Unknown route.</div></div>`;
       }
@@ -4148,6 +4536,19 @@
         });
       }
 
+      // Teams View - Manage This Team button
+      const manageTeamBtn = document.getElementById("manageTeamBtn");
+      if (manageTeamBtn) {
+        manageTeamBtn.addEventListener("click", () => {
+          if (state.selectedTeamId) {
+            state.userTeamId = state.selectedTeamId;
+            saveCurrentLeague();
+            render();
+            showBanner("success", "✓ Managing this team");
+          }
+        });
+      }
+
       // Player Detail Modal
       if (state.ui.playerModalOpen && state.ui.playerModalId) {
         const modalRoot = document.createElement("div");
@@ -4187,6 +4588,148 @@
         }
       };
       document.addEventListener("keydown", handleEscape);
+
+      // ROTATIONS PAGE HANDLERS
+      if (state.route === "rotations" && state.userTeamId) {
+        const teamId = state.userTeamId;
+        
+        // Auto-Set Starters button
+        const autoStartersBtn = document.getElementById("rotAutoStartersBtn");
+        if (autoStartersBtn) {
+          autoStartersBtn.addEventListener("click", () => {
+            const rotations = state.league.rotations[teamId];
+            if (!rotations) return;
+            
+            const roster = state.league.players.filter(p => p.teamId === teamId).sort((a,b) => b.ovr - a.ovr);
+            const positions = ["PG", "SG", "SF", "PF", "C"];
+            
+            positions.forEach(pos => {
+              const posPlayers = roster.filter(p => p.pos === pos);
+              if (posPlayers.length > 0) {
+                rotations.starters[pos] = posPlayers[0].id;
+                // If already assigned minutes, keep them; otherwise set to 32
+                if (!rotations.minutes[posPlayers[0].id]) {
+                  rotations.minutes[posPlayers[0].id] = 32;
+                }
+              }
+            });
+            
+            saveCurrentLeague();
+            render();
+            showBanner("success", "✓ Starters auto-set");
+          });
+        }
+        
+        // Auto-Set Bench button
+        const autoBenchBtn = document.getElementById("rotAutoBenchBtn");
+        if (autoBenchBtn) {
+          autoBenchBtn.addEventListener("click", () => {
+            const rotations = state.league.rotations[teamId];
+            if (!rotations) return;
+            
+            const positions = ["PG", "SG", "SF", "PF", "C"];
+            const roster = state.league.players.filter(p => p.teamId === teamId);
+            
+            positions.forEach(pos => {
+              const posPlayers = roster.filter(p => p.pos === pos).sort((a,b) => b.ovr - a.ovr);
+              rotations.benchOrder[pos] = [];
+              posPlayers.forEach((p, idx) => {
+                if (p.id !== rotations.starters[pos]) {
+                  rotations.benchOrder[pos].push(p.id);
+                }
+              });
+            });
+            
+            saveCurrentLeague();
+            render();
+            showBanner("success", "✓ Bench auto-ordered");
+          });
+        }
+        
+        // Auto-Fix Minutes button
+        const autoFixMinBtn = document.getElementById("rotAutoFixMinBtn");
+        if (autoFixMinBtn) {
+          autoFixMinBtn.addEventListener("click", () => {
+            autoFixMinutes(teamId);
+            saveCurrentLeague();
+            render();
+            showBanner("success", "✓ Minutes scaled to 240");
+          });
+        }
+        
+        // Reset to Default button
+        const resetBtn = document.getElementById("rotResetBtn");
+        if (resetBtn) {
+          resetBtn.addEventListener("click", () => {
+            if (!confirm("Reset rotations to default?")) return;
+            const roster = state.league.players.filter(p => p.teamId === teamId);
+            state.league.rotations[teamId] = initializeRotations(teamId, roster);
+            saveCurrentLeague();
+            render();
+            showBanner("success", "✓ Rotations reset");
+          });
+        }
+        
+        // Starter select dropdowns
+        document.querySelectorAll(".rotStarter").forEach(sel => {
+          sel.addEventListener("change", () => {
+            const pos = sel.dataset.pos;
+            const rotations = state.league.rotations[teamId];
+            const selectedId = sel.value;
+            
+            if (selectedId) {
+              // Check for duplicates
+              Object.keys(rotations.starters).forEach(p => {
+                if (p !== pos && rotations.starters[p] === selectedId) {
+                  rotations.starters[p] = ""; // Clear the other position
+                }
+              });
+              rotations.starters[pos] = selectedId;
+            } else {
+              rotations.starters[pos] = "";
+            }
+            
+            saveCurrentLeague();
+            render();
+          });
+        });
+        
+        // Minutes input fields
+        document.querySelectorAll(".rotMinutes").forEach(input => {
+          input.addEventListener("change", () => {
+            const playerId = input.dataset.id;
+            const minutes = parseInt(input.value) || 0;
+            const rotations = state.league.rotations[teamId];
+            rotations.minutes[playerId] = Math.max(0, Math.min(48, minutes)); // Clamp 0-48
+            
+            saveCurrentLeague();
+            render();
+          });
+        });
+        
+        // Bench Remove buttons
+        document.querySelectorAll(".rotBenchRemove").forEach(btn => {
+          btn.addEventListener("click", (e) => {
+            e.preventDefault();
+            const pos = btn.dataset.pos;
+            const playerId = btn.dataset.id;
+            const rotations = state.league.rotations[teamId];
+            rotations.benchOrder[pos] = rotations.benchOrder[pos].filter(id => id !== playerId);
+            saveCurrentLeague();
+            render();
+          });
+        });
+        
+        // Coach Adjustments checkbox
+        const coachAdjCheckbox = document.getElementById("rotCoachAdj");
+        if (coachAdjCheckbox) {
+          coachAdjCheckbox.addEventListener("change", () => {
+            state.league.rotations[teamId].coachAdjustments = coachAdjCheckbox.checked;
+            saveCurrentLeague();
+            showBanner("success", coachAdjCheckbox.checked ? "✓ Coach adjustments ON" : "✓ Coach adjustments OFF");
+          });
+        }
+      }
     }
 
     // Home screen event handlers
@@ -4247,6 +4790,10 @@
         state.league = defaultLeague();
         state.league.meta.name = name;
         state.currentSaveId = id;
+        // Set managed team to first team
+        if (state.league.teams && state.league.teams.length > 0) {
+          state.userTeamId = state.league.teams[0].id;
+        }
         setSaveStatus("Loaded");
         render();
         await refillSavesList();
@@ -4513,7 +5060,7 @@
     // Hash routing
     window.addEventListener("hashchange", () => {
       const route = (location.hash || "#home").replace("#","").trim();
-      const known = ["home","dashboard","league","standings","teams","players"];
+      const known = ["home","dashboard","league","standings","teams","rotations","players"];
       setRoute(known.includes(route) ? route : "home");
     });
 
