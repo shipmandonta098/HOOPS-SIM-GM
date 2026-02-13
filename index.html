@@ -1199,7 +1199,7 @@
      *   v0: Original - implicit version if schemaVersion missing
      *   v1: Core structure (meta, teams, players, log)
      **********************/
-    const CURRENT_SCHEMA_VERSION = 6;
+    const CURRENT_SCHEMA_VERSION = 7;
     const inMemorySaves = [];
     const inMemoryLeagues = {};
 
@@ -1451,7 +1451,221 @@
       return makeHeightWeightWingspanWithRegion(pos, "NA");
     }
 
-    function generateBio(pos) {
+    /**********************
+     * Player Ratings & Archetypes
+     **********************/
+
+    /**
+     * Generate realistic ratings for a player based on position and overall rating
+     * All ratings are 0-100, position-weighted for realism
+     */
+    function generateRatings(pos, ovr, pot, region = "NA") {
+      // Base variance: higher overall players have less variance
+      const variance = Math.max(8, 20 - (ovr / 10));
+      
+      // Helper to roll rating around a target
+      function rollRating(target, variance = 8) {
+        const rolled = target + randInt(-variance, variance);
+        return clamp(rolled, 20, 100);
+      }
+
+      // Position-specific rating generation
+      let ratings = {};
+
+      if (pos === "PG") {
+        // Playmakers: drb, pas, spd high; inD, blk low
+        ratings.ath = rollRating(ovr - 2, variance);
+        ratings.spd = rollRating(ovr + 3, variance);
+        ratings.str = rollRating(ovr - 5, variance);
+        ratings.stam = rollRating(ovr - 1, variance);
+        ratings.iq = rollRating(ovr + 2, variance);
+        ratings.drb = rollRating(ovr + 5, variance);
+        ratings.pas = rollRating(ovr + 6, variance);
+        ratings.fin = rollRating(ovr - 2, variance);
+        ratings.mid = rollRating(ovr - 3, variance);
+        ratings.tp = rollRating(ovr - 2, variance);
+        ratings.ft = rollRating(ovr - 1, variance);
+        ratings.perD = rollRating(ovr + 1, variance);
+        ratings.inD = rollRating(ovr - 10, variance);
+        ratings.reb = rollRating(ovr - 12, variance);
+        ratings.blk = rollRating(ovr - 15, variance);
+        ratings.stl = rollRating(ovr + 2, variance);
+      } else if (pos === "SG") {
+        // Scorers: tp, spd, perD high; reb, inD low
+        ratings.ath = rollRating(ovr, variance);
+        ratings.spd = rollRating(ovr + 2, variance);
+        ratings.str = rollRating(ovr - 3, variance);
+        ratings.stam = rollRating(ovr, variance);
+        ratings.iq = rollRating(ovr, variance);
+        ratings.drb = rollRating(ovr + 2, variance);
+        ratings.pas = rollRating(ovr - 3, variance);
+        ratings.fin = rollRating(ovr + 3, variance);
+        ratings.mid = rollRating(ovr + 2, variance);
+        ratings.tp = rollRating(ovr + 4, variance);
+        ratings.ft = rollRating(ovr + 1, variance);
+        ratings.perD = rollRating(ovr + 3, variance);
+        ratings.inD = rollRating(ovr - 8, variance);
+        ratings.reb = rollRating(ovr - 10, variance);
+        ratings.blk = rollRating(ovr - 12, variance);
+        ratings.stl = rollRating(ovr + 1, variance);
+      } else if (pos === "SF") {
+        // Wings: balanced but good at volume scoring and defense
+        ratings.ath = rollRating(ovr + 1, variance);
+        ratings.spd = rollRating(ovr + 1, variance);
+        ratings.str = rollRating(ovr - 1, variance);
+        ratings.stam = rollRating(ovr, variance);
+        ratings.iq = rollRating(ovr + 1, variance);
+        ratings.drb = rollRating(ovr, variance);
+        ratings.pas = rollRating(ovr - 1, variance);
+        ratings.fin = rollRating(ovr + 2, variance);
+        ratings.mid = rollRating(ovr + 1, variance);
+        ratings.tp = rollRating(ovr + 1, variance);
+        ratings.ft = rollRating(ovr, variance);
+        ratings.perD = rollRating(ovr + 2, variance);
+        ratings.inD = rollRating(ovr - 2, variance);
+        ratings.reb = rollRating(ovr - 3, variance);
+        ratings.blk = rollRating(ovr - 5, variance);
+        ratings.stl = rollRating(ovr + 1, variance);
+      } else if (pos === "PF") {
+        // Forwards: reb, str, inD high; drb, tp lower
+        ratings.ath = rollRating(ovr - 1, variance);
+        ratings.spd = rollRating(ovr - 2, variance);
+        ratings.str = rollRating(ovr + 4, variance);
+        ratings.stam = rollRating(ovr, variance);
+        ratings.iq = rollRating(ovr - 1, variance);
+        ratings.drb = rollRating(ovr - 5, variance);
+        ratings.pas = rollRating(ovr - 4, variance);
+        ratings.fin = rollRating(ovr + 1, variance);
+        ratings.mid = rollRating(ovr + 2, variance);
+        ratings.tp = rollRating(ovr - 3, variance);
+        ratings.ft = rollRating(ovr, variance);
+        ratings.perD = rollRating(ovr + 1, variance);
+        ratings.inD = rollRating(ovr + 4, variance);
+        ratings.reb = rollRating(ovr + 6, variance);
+        ratings.blk = rollRating(ovr + 2, variance);
+        ratings.stl = rollRating(ovr - 1, variance);
+      } else { // C
+        // Centers: inD, blk, reb, str very high; tp lower
+        ratings.ath = rollRating(ovr - 2, variance);
+        ratings.spd = rollRating(ovr - 4, variance);
+        ratings.str = rollRating(ovr + 5, variance);
+        ratings.stam = rollRating(ovr - 1, variance);
+        ratings.iq = rollRating(ovr - 1, variance);
+        ratings.drb = rollRating(ovr - 8, variance);
+        ratings.pas = rollRating(ovr - 5, variance);
+        ratings.fin = rollRating(ovr + 2, variance);
+        ratings.mid = rollRating(ovr + 1, variance);
+        ratings.tp = rollRating(ovr - 6, variance);
+        ratings.ft = rollRating(ovr, variance);
+        ratings.perD = rollRating(ovr, variance);
+        ratings.inD = rollRating(ovr + 6, variance);
+        ratings.reb = rollRating(ovr + 7, variance);
+        ratings.blk = rollRating(ovr + 6, variance);
+        ratings.stl = rollRating(ovr - 3, variance);
+      }
+
+      // Ensure all ratings are in valid range
+      for (let key in ratings) {
+        ratings[key] = clamp(ratings[key], 20, 100);
+      }
+
+      return ratings;
+    }
+
+    /**
+     * Compute overall rating from individual ratings
+     * Position-weighted to ensure OVR aligns with player quality
+     */
+    function computeOVR(p) {
+      if (!p.ratings) return p.ovr || 75; // fallback
+
+      const r = p.ratings;
+      let weighted = 0;
+
+      if (p.pos === "PG") {
+        weighted = (r.drb * 0.25 + r.pas * 0.25 + r.spd * 0.15 + r.perD * 0.15 + r.iq * 0.10 + r.tp * 0.10);
+      } else if (p.pos === "SG") {
+        weighted = (r.tp * 0.25 + r.fin * 0.20 + r.perD * 0.20 + r.spd * 0.15 + r.mid * 0.10 + r.drb * 0.10);
+      } else if (p.pos === "SF") {
+        weighted = (r.fin * 0.20 + r.tp * 0.20 + r.perD * 0.20 + r.ath * 0.15 + r.reb * 0.10 + r.iq * 0.10 + r.inD * 0.05);
+      } else if (p.pos === "PF") {
+        weighted = (r.reb * 0.25 + r.inD * 0.25 + r.str * 0.15 + r.fin * 0.15 + r.ath * 0.10 + r.mid * 0.10);
+      } else { // C
+        weighted = (r.inD * 0.25 + r.blk * 0.25 + r.reb * 0.25 + r.str * 0.15 + r.fin * 0.10);
+      }
+
+      return clamp(Math.round(weighted), 40, 99);
+    }
+
+    /**
+     * Derive archetype from ratings and position
+     */
+    function computeArchetype(p) {
+      if (!p.ratings) return { primary: "Prospect", tags: [] };
+
+      const r = p.ratings;
+      const pos = p.pos;
+      const tags = [];
+      let primary = "Balanced";
+
+      if (pos === "PG" || pos === "SG") {
+        // Guards
+        if (r.pas >= 80 && r.drb >= 75) {
+          primary = "Playmaker";
+          if (r.perD >= 75) tags.push("Defender");
+        } else if (r.tp >= 85 && r.mid >= 75) {
+          primary = "Sharpshooter";
+          if (r.perD >= 78) tags.push("Lockdown");
+        } else if (r.tp >= 78 && r.perD >= 78) {
+          primary = "3&D Guard";
+        } else if (r.perD >= 85 && r.stl >= 80) {
+          primary = "Defensive Pest";
+          if (r.stam >= 75) tags.push("Energy");
+        } else if (r.drb >= 78 && r.fin >= 78) {
+          primary = "Shot Creator";
+        } else {
+          primary = "Balanced Guard";
+          if (r.tp >= 75) tags.push("Scorer");
+          if (r.perD >= 75) tags.push("Defender");
+        }
+      } else if (pos === "SF" || pos === "PF") {
+        // Wings
+        if (r.tp >= 75 && r.perD >= 78 && r.fin >= 72) {
+          primary = "Two-Way Wing";
+        } else if (r.fin >= 82 && r.ath >= 78 && r.spd >= 75) {
+          primary = "Slasher";
+        } else if (r.pas >= 78 && r.iq >= 75) {
+          primary = "Point Forward";
+        } else if (r.reb >= 80 && r.str >= 78) {
+          primary = "Rebounder";
+        } else if (r.tp >= 78 && r.mid >= 75 && r.reb >= 70) {
+          primary = "Stretch Wing";
+        } else {
+          primary = "Balanced Wing";
+          if (r.perD >= 75) tags.push("Defender");
+          if (r.fin >= 75) tags.push("Scorer");
+        }
+      } else { // C
+        if (r.blk >= 85 && r.inD >= 80) {
+          primary = "Rim Protector";
+        } else if (r.reb >= 85 && r.str >= 78) {
+          primary = "Glass Cleaner";
+        } else if (r.tp >= 78 && r.reb >= 70) {
+          primary = "Stretch Big";
+        } else if (r.fin >= 80 && r.str >= 80) {
+          primary = "Post Scorer";
+        } else if (r.inD >= 75 && r.reb >= 75) {
+          primary = "Traditional Big";
+          if (r.blk >= 75) tags.push("Protector");
+        } else {
+          primary = "Traditional Big";
+          if (r.blk >= 70) tags.push("Defensive");
+          if (r.reb >= 70) tags.push("Rebounder");
+        }
+      }
+
+      return { primary, tags: tags.slice(0, 2) }; // max 2 tags
+    }
       // Determine nationality: 70% USA, 30% International
       const isUSA = Math.random() < 0.7;
       let country, hometown, college;
@@ -1644,8 +1858,11 @@
           const playerName = generateNameForCountry(bio.country);
           
           const draftYear = 2026 - (age - 19);
+          
+          // Generate ratings based on position and overall rating
+          const ratings = generateRatings(pos, ovr, pot, region);
 
-          players.push({
+          const player = {
             id: uuid(),
             firstName: playerName.firstName,
             lastName: playerName.lastName,
@@ -1668,8 +1885,17 @@
             draftPick: randInt(1, 30),
             draftedByTid: team.id,
             // Contract
-            contract: { amount: salary, years: randInt(2, 5), startSeason: draftYear + 1 }
-          });
+            contract: { amount: salary, years: randInt(2, 5), startSeason: draftYear + 1 },
+            // Ratings and archetype
+            ratings,
+          };
+          
+          // Derive archetype from ratings
+          const archetype = computeArchetype(player);
+          player.archetype = archetype.primary;
+          player.archetypeTags = archetype.tags;
+
+          players.push(player);
           playerIdx++;
         }
       });
@@ -1713,6 +1939,9 @@
         const draftRound = randInt(1, 2);
         const draftPick = randInt(1, 30);
         
+        // Generate ratings based on position and overall rating
+        const ratings = generateRatings(pos, ovr, pot, region);
+        
         const player = {
           id: uuid(),
           firstName: playerName.firstName,
@@ -1736,8 +1965,15 @@
           draftPick,
           draftedByTid: team.id,
           // Contract
-          contract: { amount: salary, years: randInt(2, 5), startSeason: draftYear + 1 }
+          contract: { amount: salary, years: randInt(2, 5), startSeason: draftYear + 1 },
+          // Ratings and archetype
+          ratings,
         };
+        
+        // Derive archetype from ratings
+        const archetype = computeArchetype(player);
+        player.archetype = archetype.primary;
+        player.archetypeTags = archetype.tags;
         
         // Ensure player identity is valid (final safety check)
         ensurePlayerIdentity(player, null, teams);
@@ -1977,6 +2213,29 @@
             v = 6;
             league.schemaVersion = 6;
             console.log("[Migration] ✓ v5 → v6 complete");
+          
+          } else if (v === 6) {
+            // v6 → v7: Generate ratings and archetypes for all players
+            console.log("[Migration] Applying v6 → v7: Generating player ratings and archetypes");
+            
+            league.players = league.players || [];
+            
+            league.players.forEach(player => {
+              // Only generate if missing - don't overwrite existing ratings
+              if (!player.ratings) {
+                player.ratings = generateRatings(player.pos || "SF", player.ovr || 75, player.pot || 85, regionForCountry(player.country || "USA"));
+              }
+              
+              if (!player.archetype) {
+                const archetype = computeArchetype(player);
+                player.archetype = archetype.primary;
+                player.archetypeTags = archetype.tags || [];
+              }
+            });
+            
+            v = 7;
+            league.schemaVersion = 7;
+            console.log("[Migration] ✓ v6 → v7 complete");
           }
           
           else {
@@ -2615,6 +2874,62 @@
             ${draftedByTeam ? `
               <div style="color: #ccc; font-size: 13px;">
                 Drafted by <strong>${escapeHtml(draftedByTeam.name)}</strong>
+              </div>
+            ` : ''}
+          </div>
+          
+          <!-- Attributes & Archetype Card -->
+          <div style="background: rgba(168,85,247,0.05); border: 1px solid rgba(168,85,247,0.2); border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+            <h3 style="font-size: 14px; font-weight: 600; color: #a855f7; text-transform: uppercase; letter-spacing: 1px; margin: 0 0 12px 0;">Archetype & Attributes</h3>
+            
+            ${player.archetype ? `
+              <div style="margin-bottom: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
+                <span style="background: #a855f7; color: #fff; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;">${escapeHtml(player.archetype)}</span>
+                ${(player.archetypeTags || []).map(tag => `<span style="background: rgba(168,85,247,0.3); color: #d8b4fe; padding: 6px 12px; border-radius: 20px; font-size: 12px;">${escapeHtml(tag)}</span>`).join('')}
+              </div>
+            ` : ''}
+            
+            ${player.ratings ? `
+              <div style="font-size: 12px; line-height: 1.8;">
+                <div style="margin-bottom: 8px;">
+                  <div style="color: #888; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Athleticism</div>
+                  <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; font-size: 12px;">
+                    <div><span style="color: #888;">ATH:</span> <span style="color: #fff; font-weight: 600;">${player.ratings.ath}</span></div>
+                    <div><span style="color: #888;">SPD:</span> <span style="color: #fff; font-weight: 600;">${player.ratings.spd}</span></div>
+                    <div><span style="color: #888;">STR:</span> <span style="color: #fff; font-weight: 600;">${player.ratings.str}</span></div>
+                    <div><span style="color: #888;">STA:</span> <span style="color: #fff; font-weight: 600;">${player.ratings.stam}</span></div>
+                  </div>
+                </div>
+                
+                <div style="margin-bottom: 8px;">
+                  <div style="color: #888; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Offense</div>
+                  <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; font-size: 12px;">
+                    <div><span style="color: #888;">DRB:</span> <span style="color: #fff; font-weight: 600;">${player.ratings.drb}</span></div>
+                    <div><span style="color: #888;">PAS:</span> <span style="color: #fff; font-weight: 600;">${player.ratings.pas}</span></div>
+                    <div><span style="color: #888;">FIN:</span> <span style="color: #fff; font-weight: 600;">${player.ratings.fin}</span></div>
+                    <div><span style="color: #888;">MID:</span> <span style="color: #fff; font-weight: 600;">${player.ratings.mid}</span></div>
+                    <div><span style="color: #888;">3PT:</span> <span style="color: #fff; font-weight: 600;">${player.ratings.tp}</span></div>
+                    <div><span style="color: #888;">FT:</span> <span style="color: #fff; font-weight: 600;">${player.ratings.ft}</span></div>
+                  </div>
+                </div>
+                
+                <div style="margin-bottom: 8px;">
+                  <div style="color: #888; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Defense</div>
+                  <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; font-size: 12px;">
+                    <div><span style="color: #888;">PER:</span> <span style="color: #fff; font-weight: 600;">${player.ratings.perD}</span></div>
+                    <div><span style="color: #888;">INT:</span> <span style="color: #fff; font-weight: 600;">${player.ratings.inD}</span></div>
+                    <div><span style="color: #888;">REB:</span> <span style="color: #fff; font-weight: 600;">${player.ratings.reb}</span></div>
+                    <div><span style="color: #888;">BLK:</span> <span style="color: #fff; font-weight: 600;">${player.ratings.blk}</span></div>
+                    <div><span style="color: #888;">STL:</span> <span style="color: #fff; font-weight: 600;">${player.ratings.stl}</span></div>
+                  </div>
+                </div>
+                
+                <div>
+                  <div style="color: #888; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Mental</div>
+                  <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; font-size: 12px;">
+                    <div><span style="color: #888;">IQ:</span> <span style="color: #fff; font-weight: 600;">${player.ratings.iq}</span></div>
+                  </div>
+                </div>
               </div>
             ` : ''}
           </div>
