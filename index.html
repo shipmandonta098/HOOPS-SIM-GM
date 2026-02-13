@@ -1322,26 +1322,133 @@
       return { firstName, lastName };
     }
 
-    function makeHeightWeightWingspan(pos) {
+    /**********************
+     * Regional Tendencies
+     **********************/
+    
+    /**
+     * Map country to region for position/physical weighting
+     */
+    function regionForCountry(country) {
+      const regionMap = {
+        // North America
+        "USA": "NA",
+        "Canada": "NA",
+        // Europe
+        "France": "EUROPE",
+        "Spain": "EUROPE",
+        "Serbia": "EUROPE",
+        "Slovenia": "EUROPE",
+        "Lithuania": "EUROPE",
+        // Africa
+        "Nigeria": "AFRICA",
+        // Latin America
+        "Argentina": "LATAM",
+        "Brazil": "LATAM",
+        // Oceania
+        "Australia": "OCEANIA"
+      };
+      return regionMap[country] || "OTHER";
+    }
+
+    /**
+     * Position distribution weights by region
+     * Higher numbers = more likely in that region
+     */
+    const POSITION_WEIGHTS = {
+      NA: { PG: 0.26, SG: 0.24, SF: 0.20, PF: 0.16, C: 0.14 },
+      EUROPE: { PG: 0.20, SG: 0.22, SF: 0.22, PF: 0.18, C: 0.18 },
+      AFRICA: { PG: 0.16, SG: 0.20, SF: 0.22, PF: 0.20, C: 0.22 },
+      LATAM: { PG: 0.22, SG: 0.22, SF: 0.20, PF: 0.18, C: 0.18 },
+      OCEANIA: { PG: 0.20, SG: 0.22, SF: 0.20, PF: 0.18, C: 0.20 },
+      OTHER: { PG: 0.22, SG: 0.22, SF: 0.20, PF: 0.18, C: 0.18 }
+    };
+
+    /**
+     * Height offset by region (in inches) - applied to all positions
+     */
+    const REGION_HEIGHT_OFFSET = {
+      NA: 0,
+      EUROPE: 1,
+      AFRICA: 2,
+      LATAM: 0,
+      OCEANIA: 1,
+      OTHER: 0
+    };
+
+    /**
+     * Pick a key from a weights object using weighted random selection
+     * weights: { key1: 0.5, key2: 0.3, key3: 0.2 }
+     */
+    function weightedPick(weights) {
+      const keys = Object.keys(weights);
+      const values = keys.map(k => weights[k]);
+      const total = values.reduce((a, b) => a + b, 0);
+      
+      let rand = Math.random() * total;
+      for (let i = 0; i < keys.length; i++) {
+        rand -= values[i];
+        if (rand <= 0) {
+          return keys[i];
+        }
+      }
+      return keys[keys.length - 1]; // fallback
+    }
+
+    /**
+     * Pick position based on region tendencies
+     */
+    function pickPositionByRegion(region) {
+      const weights = POSITION_WEIGHTS[region] || POSITION_WEIGHTS["OTHER"];
+      return weightedPick(weights);
+    }
+
+    /**
+     * Generate height/weight/wingspan with region tendencies
+     */
+    function makeHeightWeightWingspanWithRegion(pos, region) {
+      const offset = REGION_HEIGHT_OFFSET[region] || 0;
       let heightIn, weightLb;
+
       if (pos === "PG") {
-        heightIn = randInt(69, 76);
+        heightIn = randInt(69, 76) + offset + randInt(-1, 1);
+        heightIn = clamp(heightIn, 68, 79);
         weightLb = randInt(160, 210);
       } else if (pos === "SG") {
-        heightIn = randInt(73, 79);
+        heightIn = randInt(73, 79) + offset + randInt(-1, 1);
+        heightIn = clamp(heightIn, 72, 82);
         weightLb = randInt(170, 225);
+        if (region === "AFRICA") weightLb += randInt(-5, 10);
       } else if (pos === "SF") {
-        heightIn = randInt(75, 82);
+        heightIn = randInt(75, 82) + offset + randInt(-1, 1);
+        heightIn = clamp(heightIn, 74, 85);
         weightLb = randInt(190, 245);
+        if (region === "AFRICA") weightLb += randInt(-5, 10);
+        else if (region === "EUROPE") weightLb += randInt(0, 10);
       } else if (pos === "PF") {
-        heightIn = randInt(78, 84);
+        heightIn = randInt(78, 84) + offset + randInt(-1, 1);
+        heightIn = clamp(heightIn, 77, 87);
         weightLb = randInt(210, 265);
+        if (region === "AFRICA") weightLb += randInt(-5, 10);
+        else if (region === "EUROPE") weightLb += randInt(0, 10);
       } else { // C
-        heightIn = randInt(81, 88);
+        heightIn = randInt(81, 88) + offset + randInt(-1, 1);
+        heightIn = clamp(heightIn, 80, 91);
         weightLb = randInt(230, 290);
+        if (region === "AFRICA") weightLb += randInt(-5, 10);
+        else if (region === "EUROPE") weightLb += randInt(0, 10);
       }
-      const wingspanIn = heightIn + randInt(2, 10);
+
+      // Wingspan: slightly more extension in Africa
+      const wingspanBase = region === "AFRICA" ? randInt(3, 11) : randInt(2, 10);
+      const wingspanIn = heightIn + wingspanBase;
+
       return { heightIn, weightLb, wingspanIn };
+    }
+
+    function makeHeightWeightWingspan(pos) {
+      // Legacy function for backward compatibility - uses NA defaults
+      return makeHeightWeightWingspanWithRegion(pos, "NA");
     }
 
     function generateBio(pos) {
@@ -1426,8 +1533,9 @@
       }
 
       if (needsPhysicalRenewal) {
-        // Regenerate physicals matching position
-        const phys = makeHeightWeightWingspan(p.pos || "SF");
+        // Regenerate physicals matching position and region
+        const region = regionForCountry(p.country || "USA");
+        const phys = makeHeightWeightWingspanWithRegion(p.pos || "SF", region);
         p.heightIn = phys.heightIn;
         p.weightLb = phys.weightLb;
         p.wingspanIn = phys.wingspanIn;
@@ -1514,43 +1622,34 @@
     ];
 
     function generatePlayersForTeams(teams, playersPerTeam = 8) {
-      const firstNames = [
-        "Jalen", "Malik", "Theo", "Darius", "Andre", "Zion", "Marcus", "Kyrie",
-        "Noah", "Devin", "Evan", "Jordan", "Brandon", "Kyle", "Chase", "Harrison",
-        "Trevor", "Blake", "Griffin", "Tyson", "Donovan", "Jayson", "Luka", "Trae",
-        "Jamal", "Nikola", "Giannis", "Kevin", "Stephen", "LeBron", "Michael",
-        "Isaiah", "Damian", "Russell", "Anthony", "CJ", "Khris", "Tobias", "Ben",
-        "Shai", "Wilt", "Dwyane", "Chris", "Tim", "Karl", "John", "David",
-        "JJ", "Danny", "Kawhis", "Kawhi", "Jaundice", "Jake", "Jrue", "D'Angelo"
-      ];
-      
-      const lastNames = [
-        "Cross", "Hughes", "Navarro", "Cole", "Vaughn", "Parker", "Reed", "Santos",
-        "Okafor", "Price", "Knight", "Kim", "Smith", "Johnson", "Williams", "Davis",
-        "Miller", "Wilson", "Moore", "Taylor", "Anderson", "Thomas", "Jackson", "White",
-        "Harris", "Martin", "Thompson", "Garcia", "Martinez", "Robinson", "Clark",
-        "Rodriguez", "Lewis", "Lee", "Walker", "Hall", "Young", "Green", "Adams",
-        "Nelson", "Hernandez", "King", "Wright", "Lopez", "Hill", "Scott", "Perez"
-      ];
-      
-      const positions = ["PG", "SG", "SF", "PF", "C"];
       const players = [];
 
       let playerIdx = 0;
       teams.forEach(team => {
         for (let i = 0; i < playersPerTeam; i++) {
-          const firstName = firstNames[playerIdx % firstNames.length];
-          const lastName = lastNames[(playerIdx + Math.floor(Math.random() * lastNames.length)) % lastNames.length];
           const ovr = randInt(50, 85);
           const pot = clamp(ovr + randInt(-5, 12), 45, 95);
           const age = randInt(19, 34);
           const salary = randInt(2, 30) * 1_000_000;
+          
+          // Generate bio (country/hometown/college)
+          const bio = generateBio("SF");
+          const region = regionForCountry(bio.country);
+          
+          // Pick position based on region tendencies
+          const pos = pickPositionByRegion(region);
+          
+          // Generate physicals with region tendencies
+          const phys = makeHeightWeightWingspanWithRegion(pos, region);
+          const playerName = generateNameForCountry(bio.country);
+          
+          const draftYear = 2026 - (age - 19);
 
           players.push({
             id: uuid(),
-            firstName,
-            lastName,
-            pos: positions[i % positions.length],
+            firstName: playerName.firstName,
+            lastName: playerName.lastName,
+            pos,
             age,
             teamId: team.id,
             ovr,
@@ -1558,7 +1657,18 @@
             salary,
             mood: randInt(40, 90),
             stamina: randInt(70, 100),
-            stats: { gp: 0, pts: 0, reb: 0, ast: 0 }
+            stats: { gp: 0, pts: 0, reb: 0, ast: 0 },
+            // Bio fields
+            heightIn: phys.heightIn,
+            weightLb: phys.weightLb,
+            wingspanIn: phys.wingspanIn,
+            ...bio,
+            draftYear,
+            draftRound: randInt(1, 2),
+            draftPick: randInt(1, 30),
+            draftedByTid: team.id,
+            // Contract
+            contract: { amount: salary, years: randInt(2, 5), startSeason: draftYear + 1 }
           });
           playerIdx++;
         }
@@ -1581,20 +1691,23 @@
         ["Noah", "Okafor"], ["Devin", "Price"], ["Evan", "Knight"], ["Jordan", "Kim"],
       ];
 
-      const positions = ["PG", "SG", "SF", "PF", "C"];
-
       const players = names.map((n, i) => {
         const team = teams[i % teams.length];
         const ovr = randInt(50, 85);
         const pot = clamp(ovr + randInt(-5, 12), 45, 95);
         const age = randInt(19, 34);
         const salary = randInt(2, 30) * 1_000_000;
-        const pos = positions[i % positions.length];
         
-        // Generate realistic bio data by position
-        const bio = generateBio(pos);  // Gets country + hometown + college
-        const phys = makeHeightWeightWingspan(pos);  // Gets height + weight + wingspan
-        const playerName = generateNameForCountry(bio.country);  // Gets firstName + lastName matching country
+        // Generate realistic bio data
+        const bio = generateBio("SF");  // Start with a position-neutral call
+        const region = regionForCountry(bio.country);
+        
+        // Pick position based on region tendencies
+        const pos = pickPositionByRegion(region);
+        
+        // Generate physicals with region tendencies
+        const phys = makeHeightWeightWingspanWithRegion(pos, region);
+        const playerName = generateNameForCountry(bio.country);
         
         const draftYear = 2026 - (age - 19);
         const draftRound = randInt(1, 2);
