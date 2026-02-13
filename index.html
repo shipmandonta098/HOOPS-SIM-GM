@@ -1109,6 +1109,7 @@
         <a href="#standings" data-route="standings"><span>📊 Standings</span><span>›</span></a>
         <a href="#teams" data-route="teams"><span>🏟️ Teams</span><span>›</span></a>
         <a href="#rotations" data-route="rotations"><span>🧩 Rotations</span><span>›</span></a>
+        <a href="#schedule" data-route="schedule"><span>🗓️ Schedule</span><span>›</span></a>
         <a href="#players" data-route="players"><span>🧑‍🦱 Players</span><span>›</span></a>
       </div>
 
@@ -1200,7 +1201,7 @@
      *   v0: Original - implicit version if schemaVersion missing
      *   v1: Core structure (meta, teams, players, log)
      **********************/
-    const CURRENT_SCHEMA_VERSION = 9;
+    const CURRENT_SCHEMA_VERSION = 10;
     const inMemorySaves = [];
     const inMemoryLeagues = {};
 
@@ -2039,6 +2040,189 @@
       }
     }
 
+    /**********************
+     * SCHEDULE SYSTEM
+     **********************/
+
+    /**
+     * Assign conferences and divisions deterministically
+     */
+    function assignConferencesAndDivisions(league) {
+      const teams = [...league.teams].sort((a,b) => a.name.localeCompare(b.name));
+      
+      // East: first 15, West: last 15
+      const east = teams.slice(0, 15);
+      const west = teams.slice(15, 30);
+      
+      // Assign divisions
+      const divisions = ["1", "2", "3"];
+      
+      // East divisions
+      east.forEach((team, idx) => {
+        team.conf = "East";
+        team.div = `East-${divisions[Math.floor(idx / 5)]}`;
+      });
+      
+      // West divisions
+      west.forEach((team, idx) => {
+        team.conf = "West";
+        team.div = `West-${divisions[Math.floor(idx / 5)]}`;
+      });
+    }
+
+    /**
+     * Get division teams (excluding self)
+     */
+    function getDivisionOpponents(team, league) {
+      return league.teams.filter(t => t.div === team.div && t.id !== team.id);
+    }
+
+    /**
+     * Get conference opponents in other divisions
+     */
+    function getConferenceNonDivisionOpponents(team, league) {
+      return league.teams.filter(t => t.conf === team.conf && t.div !== team.div);
+    }
+
+    /**
+     * Get inter-conference opponents
+     */
+    function getInterConferenceOpponents(team, league) {
+      return league.teams.filter(t => t.conf !== team.conf);
+    }
+
+    /**
+     * Generate 82-game schedule
+     */
+    function generateSchedule(league) {
+      const teams = league.teams;
+      const season = league.meta.season;
+      const games = [];
+
+      // DIVISION GAMES: Process each division once
+      teams.forEach(team => {
+        const divisionOpponents = getDivisionOpponents(team, league);
+        divisionOpponents.forEach(opp => {
+          // Only process if this team ID is less than opponent ID (canonical direction)
+          if (team.id < opp.id) {
+            // 2 home + 2 away games
+            games.push({ id: uuid(), season, day: 0, homeTid: team.id, awayTid: opp.id, played: false });
+            games.push({ id: uuid(), season, day: 0, homeTid: team.id, awayTid: opp.id, played: false });
+            games.push({ id: uuid(), season, day: 0, homeTid: opp.id, awayTid: team.id, played: false });
+            games.push({ id: uuid(), season, day: 0, homeTid: opp.id, awayTid: team.id, played: false });
+          }
+        });
+      });
+
+      // INTER-CONFERENCE AND INTRA-CONF NON-DIV GAMES
+      // Process only one direction for each pair to avoid duplicates
+      for (let i = 0; i < teams.length; i++) {
+        const team = teams[i];
+        const interConfOpponents = getInterConferenceOpponents(team, league);
+        const confNonDivOpponents = getConferenceNonDivisionOpponents(team, league);
+
+        // Inter-conference: 1 home, 1 away per opponent
+        interConfOpponents.forEach(opp => {
+          if (team.id < opp.id) {
+            games.push({ id: uuid(), season, day: 0, homeTid: team.id, awayTid: opp.id, played: false });
+            games.push({ id: uuid(), season, day: 0, homeTid: opp.id, awayTid: team.id, played: false });
+          }
+        });
+
+        // Intra-conf non-division: 36 total per team
+        const confNonDivIds = confNonDivOpponents.map(t => t.id).sort();
+        if (confNonDivIds.length > 0) {
+          const offset = (season % confNonDivIds.length);
+          const rotated = [...confNonDivIds.slice(offset), ...confNonDivIds.slice(0, offset)];
+          
+          const playFourTimes = rotated.slice(0, 6);
+          const playThreeTimes = rotated.slice(6, 10);
+
+          playFourTimes.forEach(oppId => {
+            if (team.id < oppId) {
+              // 2 home, 2 away
+              games.push({ id: uuid(), season, day: 0, homeTid: team.id, awayTid: oppId, played: false });
+              games.push({ id: uuid(), season, day: 0, homeTid: team.id, awayTid: oppId, played: false });
+              games.push({ id: uuid(), season, day: 0, homeTid: oppId, awayTid: team.id, played: false });
+              games.push({ id: uuid(), season, day: 0, homeTid: oppId, awayTid: team.id, played: false });
+            }
+          });
+
+          playThreeTimes.forEach((oppId, idx) => {
+            if (team.id < oppId) {
+              if (idx % 2 === 0) {
+                // 2 home, 1 away
+                games.push({ id: uuid(), season, day: 0, homeTid: team.id, awayTid: oppId, played: false });
+                games.push({ id: uuid(), season, day: 0, homeTid: team.id, awayTid: oppId, played: false });
+                games.push({ id: uuid(), season, day: 0, homeTid: oppId, awayTid: team.id, played: false });
+              } else {
+                // 1 home, 2 away
+                games.push({ id: uuid(), season, day: 0, homeTid: team.id, awayTid: oppId, played: false });
+                games.push({ id: uuid(), season, day: 0, homeTid: oppId, awayTid: team.id, played: false });
+                games.push({ id: uuid(), season, day: 0, homeTid: oppId, awayTid: team.id, played: false });
+              }
+            }
+          });
+        }
+      }
+
+      // Assign games to days using greedy scheduling
+      const maxDays = 175;
+      const byTeam = {};
+      teams.forEach(t => byTeam[t.id] = []);
+
+      const unscheduled = [...games];
+      
+      for (let day = 1; day <= maxDays && unscheduled.length > 0; day++) {
+        const dayTeams = new Set();
+        const toRemove = [];
+
+        // Find feasible games for this day
+        for (let i = 0; i < unscheduled.length; i++) {
+          const game = unscheduled[i];
+          if (!dayTeams.has(game.homeTid) && !dayTeams.has(game.awayTid)) {
+            game.day = day;
+            dayTeams.add(game.homeTid);
+            dayTeams.add(game.awayTid);
+            toRemove.push(i);
+            if (dayTeams.size >= 28) break; // ~14 games max per day
+          }
+        }
+
+        // Remove scheduled games (in reverse to maintain indices)
+        for (let i = toRemove.length - 1; i >= 0; i--) {
+          unscheduled.splice(toRemove[i], 1);
+        }
+      }
+
+      // Assign remaining games if any
+      unscheduled.forEach((game, idx) => {
+        game.day = Math.floor(idx / 15) + maxDays + 1;
+      });
+
+      // Build byTeam index
+      games.forEach(game => {
+        byTeam[game.homeTid].push(game.id);
+        byTeam[game.awayTid].push(game.id);
+      });
+
+      // Sort each team's games by day
+      Object.keys(byTeam).forEach(tid => {
+        byTeam[tid].sort((a, b) => {
+          const dayA = games.find(g => g.id === a).day;
+          const dayB = games.find(g => g.id === b).day;
+          return dayA - dayB;
+        });
+      });
+
+      return {
+        season,
+        games,
+        byTeam,
+        maxDays: Math.max(...games.map(g => g.day))
+      };
+    }
+
     /**
      * Generate player bio (nationality, hometown, college)
      */
@@ -2288,11 +2472,44 @@
     }
 
     function defaultLeague() {
+      // Full NBA-style 30-team league
       const teams = [
-        { id: uuid(), name: "New York Knights", abbrev: "NYK", wins: 0, losses: 0, cash: 50_000_000, conf: "East", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
-        { id: uuid(), name: "Chicago Comets",  abbrev: "CHI", wins: 0, losses: 0, cash: 50_000_000, conf: "West", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
-        { id: uuid(), name: "LA Starlight",    abbrev: "LAS", wins: 0, losses: 0, cash: 50_000_000, conf: "West", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
-        { id: uuid(), name: "Miami Tide",      abbrev: "MIA", wins: 0, losses: 0, cash: 50_000_000, conf: "East", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
+        // EAST DIVISION 1
+        { id: uuid(), name: "Atlanta Hawks", abbrev: "ATL", wins: 0, losses: 0, cash: 50_000_000, conf: "", div: "", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
+        { id: uuid(), name: "Boston Celtics", abbrev: "BOS", wins: 0, losses: 0, cash: 50_000_000, conf: "", div: "", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
+        { id: uuid(), name: "Charlotte Hornets", abbrev: "CHA", wins: 0, losses: 0, cash: 50_000_000, conf: "", div: "", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
+        { id: uuid(), name: "Miami Heat", abbrev: "MIA", wins: 0, losses: 0, cash: 50_000_000, conf: "", div: "", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
+        { id: uuid(), name: "Washington Wizards", abbrev: "WAS", wins: 0, losses: 0, cash: 50_000_000, conf: "", div: "", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
+        // EAST DIVISION 2
+        { id: uuid(), name: "Chicago Bulls", abbrev: "CHI", wins: 0, losses: 0, cash: 50_000_000, conf: "", div: "", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
+        { id: uuid(), name: "Cleveland Cavaliers", abbrev: "CLE", wins: 0, losses: 0, cash: 50_000_000, conf: "", div: "", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
+        { id: uuid(), name: "Detroit Pistons", abbrev: "DET", wins: 0, losses: 0, cash: 50_000_000, conf: "", div: "", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
+        { id: uuid(), name: "Indianapolis Pacers", abbrev: "IND", wins: 0, losses: 0, cash: 50_000_000, conf: "", div: "", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
+        { id: uuid(), name: "Milwaukee Bucks", abbrev: "MIL", wins: 0, losses: 0, cash: 50_000_000, conf: "", div: "", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
+        // EAST DIVISION 3
+        { id: uuid(), name: "Brooklyn Nets", abbrev: "BRK", wins: 0, losses: 0, cash: 50_000_000, conf: "", div: "", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
+        { id: uuid(), name: "New York Knicks", abbrev: "NYK", wins: 0, losses: 0, cash: 50_000_000, conf: "", div: "", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
+        { id: uuid(), name: "Philadelphia 76ers", abbrev: "PHI", wins: 0, losses: 0, cash: 50_000_000, conf: "", div: "", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
+        { id: uuid(), name: "Toronto Raptors", abbrev: "TOR", wins: 0, losses: 0, cash: 50_000_000, conf: "", div: "", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
+        { id: uuid(), name: "Orlando Magic", abbrev: "ORL", wins: 0, losses: 0, cash: 50_000_000, conf: "", div: "", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
+        // WEST DIVISION 1
+        { id: uuid(), name: "Denver Nuggets", abbrev: "DEN", wins: 0, losses: 0, cash: 50_000_000, conf: "", div: "", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
+        { id: uuid(), name: "Minnesota Timberwolves", abbrev: "MIN", wins: 0, losses: 0, cash: 50_000_000, conf: "", div: "", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
+        { id: uuid(), name: "Oklahoma City Thunder", abbrev: "OKC", wins: 0, losses: 0, cash: 50_000_000, conf: "", div: "", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
+        { id: uuid(), name: "Portland Trail Blazers", abbrev: "POR", wins: 0, losses: 0, cash: 50_000_000, conf: "", div: "", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
+        { id: uuid(), name: "Utah Jazz", abbrev: "UTA", wins: 0, losses: 0, cash: 50_000_000, conf: "", div: "", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
+        // WEST DIVISION 2
+        { id: uuid(), name: "Golden State Warriors", abbrev: "GSW", wins: 0, losses: 0, cash: 50_000_000, conf: "", div: "", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
+        { id: uuid(), name: "LA Clippers", abbrev: "LAC", wins: 0, losses: 0, cash: 50_000_000, conf: "", div: "", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
+        { id: uuid(), name: "LA Lakers", abbrev: "LAL", wins: 0, losses: 0, cash: 50_000_000, conf: "", div: "", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
+        { id: uuid(), name: "Phoenix Suns", abbrev: "PHX", wins: 0, losses: 0, cash: 50_000_000, conf: "", div: "", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
+        { id: uuid(), name: "Sacramento Kings", abbrev: "SAC", wins: 0, losses: 0, cash: 50_000_000, conf: "", div: "", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
+        // WEST DIVISION 3
+        { id: uuid(), name: "Dallas Mavericks", abbrev: "DAL", wins: 0, losses: 0, cash: 50_000_000, conf: "", div: "", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
+        { id: uuid(), name: "Houston Rockets", abbrev: "HOU", wins: 0, losses: 0, cash: 50_000_000, conf: "", div: "", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
+        { id: uuid(), name: "Memphis Grizzlies", abbrev: "MEM", wins: 0, losses: 0, cash: 50_000_000, conf: "", div: "", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
+        { id: uuid(), name: "New Orleans Pelicans", abbrev: "NOP", wins: 0, losses: 0, cash: 50_000_000, conf: "", div: "", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
+        { id: uuid(), name: "San Antonio Spurs", abbrev: "SAS", wins: 0, losses: 0, cash: 50_000_000, conf: "", div: "", confWins: 0, confLosses: 0, homeWins: 0, homeLosses: 0, roadWins: 0, roadLosses: 0, last10: [], streakType: "—", streakLen: 0 },
       ];
 
       const names = [
@@ -2372,7 +2589,7 @@
         return player;
       });
 
-      return {
+      const league = {
         meta: {
           name: "My League",
           season: 2026,
@@ -2391,6 +2608,12 @@
         })(),
         schemaVersion: CURRENT_SCHEMA_VERSION
       };
+
+      // Assign conferences/divisions and generate schedule
+      assignConferencesAndDivisions(league);
+      league.schedule = generateSchedule(league);
+
+      return league;
     }
 
     /**********************
@@ -2672,6 +2895,30 @@
             v = 9;
             league.schemaVersion = 9;
             console.log("[Migration] ✓ v8 → v9 complete");
+          
+          } else if (v === 9) {
+            // v9 → v10: Assign conferences/divisions and generate schedule
+            console.log("[Migration] Applying v9 → v10: Assigning conferences/divisions and generating schedule");
+            
+            league.teams = league.teams || [];
+            league.players = league.players || [];
+            
+            // Assign conf/div if missing
+            league.teams.forEach(team => {
+              if (!team.conf || !team.div) {
+                // Will be set by assignConferencesAndDivisions
+              }
+            });
+            assignConferencesAndDivisions(league);
+            
+            // Generate schedule if missing
+            if (!league.schedule) {
+              league.schedule = generateSchedule(league);
+            }
+            
+            v = 10;
+            league.schemaVersion = 10;
+            console.log("[Migration] ✓ v9 → v10 complete");
           }
           
           else {
@@ -3166,21 +3413,44 @@
     }
 
     function simDay() {
-      const { meta, teams } = state.league;
+      const { meta, teams, schedule } = state.league;
+      
+      // Regenerate stamina for all players
       state.league.players.forEach(p => {
         p.stamina = clamp(p.stamina + randInt(1, 4), 0, 100);
       });
 
-      const shuffled = [...teams].sort(() => Math.random() - 0.5);
-      const games = [];
-      for (let i = 0; i + 1 < shuffled.length; i += 2) {
-        games.push(simulateOneGame(shuffled[i], shuffled[i+1]));
-      }
+      // Get games scheduled for today
+      const todayGames = schedule && schedule.games 
+        ? schedule.games.filter(g => g.day === meta.day && !g.played) 
+        : [];
 
+      const gameSummaries = [];
+
+      // Simulate each scheduled game
+      todayGames.forEach(game => {
+        const homeTeam = teamById(game.homeTid);
+        const awayTeam = teamById(game.awayTid);
+        const result = simulateOneGame(homeTeam, awayTeam);
+        
+        // Mark game as played and store scores
+        game.played = true;
+        game.homeScore = result.homeScore || 0;
+        game.awayScore = result.awayScore || 0;
+        
+        gameSummaries.push(result);
+      });
+
+      // Advance day
       meta.day += 1;
-      if (meta.day > 112) {
+      
+      // Check if season is over (all games played or we've exceeded maxDays)
+      const allGamesPlayed = schedule && schedule.games && schedule.games.every(g => g.played);
+      if (allGamesPlayed || (schedule && meta.day > schedule.maxDays)) {
         meta.day = 1;
         meta.season += 1;
+        
+        // Reset teams for new season
         teams.forEach(t => { 
           t.wins = 0; 
           t.losses = 0; 
@@ -3194,10 +3464,19 @@
           t.streakType = "—";
           t.streakLen = 0;
         });
-        state.league.log.unshift(`Season advanced to ${meta.season}. Records reset.`);
+        
+        // Generate new schedule
+        state.league.schedule = generateSchedule(state.league);
+        state.league.log.unshift(`Season advanced to ${meta.season}. Records reset and new schedule generated.`);
       }
 
-      state.league.log.unshift(`Day simmed: ${games.join(" | ")}`);
+      // Log results
+      if (gameSummaries.length > 0) {
+        state.league.log.unshift(`Day ${meta.day - 1} simmed: ${gameSummaries.join(" | ")}`);
+      } else {
+        state.league.log.unshift(`Day ${meta.day - 1}: No games scheduled`);
+      }
+      
       if (state.league.log.length > 25) state.league.log.length = 25;
 
       debounceAutoSave();
@@ -4077,6 +4356,158 @@
       `;
     }
 
+    function viewSchedule() {
+      const schedule = state.league.schedule;
+      if (!schedule || !schedule.games) {
+        return `
+          <div class="grid">
+            <div class="card">
+              <div class="bd" style="text-align: center; padding: 40px; color: #888;">
+                <div style="font-size: 24px; margin-bottom: 12px;">📅</div>
+                <div style="font-size: 14px;">No schedule available</div>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      const userTeamId = state.userTeamId;
+      const currentDay = state.league.meta.day;
+      const season = schedule.season;
+
+      // Get all games for the user's team
+      const teamGames = schedule.games.filter(g => g.homeTid === userTeamId || g.awayTid === userTeamId);
+      const todayGames = schedule.games.filter(g => g.day === currentDay);
+
+      // Tabs state
+      const currentTab = state.scheduleTab || "today";
+
+      return `
+        <div class="grid">
+          <!-- Header -->
+          <div class="card" style="grid-column: 1 / -1;">
+            <div class="hd">
+              <h2>Schedule – ${season} Season</h2>
+              <div class="hint">Day ${currentDay} of ${schedule.maxDays}</div>
+            </div>
+            <div class="bd" style="display: flex; gap: 12px; border-bottom: 1px solid #333; padding-bottom: 12px;">
+              <button id="schedTabToday" class="btn" style="background: ${currentTab === 'today' ? '#3b82f6' : '#333'}; border-bottom: ${currentTab === 'today' ? '2px solid #60a5fa' : 'none'};">📅 Today (${todayGames.length} games)</button>
+              <button id="schedTabSeason" class="btn" style="background: ${currentTab === 'season' ? '#3b82f6' : '#333'}; border-bottom: ${currentTab === 'season' ? '2px solid #60a5fa' : 'none'};">📊 ${state.userTeamId ? 'My Team' : 'All Games'}</button>
+            </div>
+          </div>
+
+          <!-- Today View -->
+          ${currentTab === 'today' ? `
+            <div class="card" style="grid-column: 1 / -1;">
+              <div class="hd"><h3>Today's Games – Day ${currentDay}</div>
+              <div class="bd">
+                ${todayGames.length === 0 ? `
+                  <div style="text-align: center; color: #888; padding: 40px;">
+                    <div style="font-size: 14px;">No games scheduled for today</div>
+                  </div>
+                ` : `
+                  <table style="width: 100%; border-collapse: collapse;">
+                    <thead>
+                      <tr style="border-bottom: 1px solid #444;">
+                        <th style="text-align: left; padding: 8px; color: #60a5fa;">Away</th>
+                        <th style="text-align: center; padding: 8px; color: #60a5fa;">Score</th>
+                        <th style="text-align: left; padding: 8px; color: #60a5fa;">Home</th>
+                        <th style="text-align: center; padding: 8px; color: #60a5fa;">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${todayGames.map(game => {
+                        const awayTeam = teamById(game.awayTid);
+                        const homeTeam = teamById(game.homeTid);
+                        const awayLogo = awayTeam.color ? generateTeamLogo(awayTeam.abbrev, awayTeam.color, 16) : '';
+                        const homeLogo = homeTeam.color ? generateTeamLogo(homeTeam.abbrev, homeTeam.color, 16) : '';
+                        const isUserTeam = game.homeTid === userTeamId || game.awayTid === userTeamId;
+                        
+                        return `
+                          <tr style="border-bottom: 1px solid #333; ${isUserTeam ? 'background: rgba(96,165,250,0.1);' : ''}">
+                            <td style="padding: 12px; text-align: left;">
+                              ${awayLogo} ${escapeHtml(awayTeam.abbrev)}
+                            </td>
+                            <td style="padding: 12px; text-align: center; font-weight: 600;">
+                              ${game.played ? `${game.awayScore || 0}-${game.homeScore || 0}` : '–'}
+                            </td>
+                            <td style="padding: 12px; text-align: left;">
+                              ${homeLogo} ${escapeHtml(homeTeam.abbrev)}
+                            </td>
+                            <td style="padding: 12px; text-align: center;">
+                              <span class="tag" style="background: ${game.played ? '#22c55e' : '#eab308'}; color: #000;">
+                                ${game.played ? 'Final' : 'Scheduled'}
+                              </span>
+                            </td>
+                          </tr>
+                        `;
+                      }).join('')}
+                    </tbody>
+                  </table>
+                `}
+              </div>
+            </div>
+            
+            <div class="card" style="grid-column: 1 / -1;">
+              <div class="bd">
+                <button id="simTodayBtn" class="btn" style="background: #22c55e; padding: 12px 24px; font-size: 14px; font-weight: 600;">
+                  ▶ Simulate Today (${todayGames.length} games)
+                </button>
+              </div>
+            </div>
+          ` : ''}
+
+          <!-- Season View -->
+          ${currentTab === 'season' ? `
+            <div class="card" style="grid-column: 1 / -1;">
+              <div class="hd"><h3>${userTeamId ? escapeHtml(teamById(userTeamId).name) + ' – ' : ''}Full Season (${schedule.games.length} total)</h3></div>
+              <div class="bd" style="overflow-x: auto; max-height: 500px; overflow-y: auto;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                  <thead style="position: sticky; top: 0; background: #1a1a1a; border-bottom: 1px solid #444;">
+                    <tr>
+                      <th style="text-align: left; padding: 8px; color: #60a5fa;">Day</th>
+                      <th style="text-align: left; padding: 8px; color: #60a5fa;">Away</th>
+                      <th style="text-align: center; padding: 8px; color: #60a5fa;">Score</th>
+                      <th style="text-align: left; padding: 8px; color: #60a5fa;">Home</th>
+                      <th style="text-align: center; padding: 8px; color: #60a5fa;">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${(userTeamId ? teamGames : schedule.games).map(game => {
+                      const awayTeam = teamById(game.awayTid);
+                      const homeTeam = teamById(game.homeTid);
+                      const awayLogo = awayTeam.color ? generateTeamLogo(awayTeam.abbrev, awayTeam.color, 14) : '';
+                      const homeLogo = homeTeam.color ? generateTeamLogo(homeTeam.abbrev, homeTeam.color, 14) : '';
+                      const isUserTeam = userTeamId && (game.homeTid === userTeamId || game.awayTid === userTeamId);
+                      const isUpcoming = game.day >= currentDay;
+                      
+                      return `
+                        <tr style="border-bottom: 1px solid #2a2a2a; ${isUserTeam ? 'background: rgba(96,165,250,0.05);' : ''}">
+                          <td style="padding: 8px; color: #888; font-size: 11px;">Day ${game.day}</td>
+                          <td style="padding: 8px; text-align: left;">
+                            ${awayLogo} ${escapeHtml(awayTeam.abbrev)}
+                          </td>
+                          <td style="padding: 8px; text-align: center; font-weight: 600; color: ${game.played ? '#fff' : '#888'};">
+                            ${game.played ? `${game.awayScore || 0}-${game.homeScore || 0}` : '–'}
+                          </td>
+                          <td style="padding: 8px; text-align: left;">
+                            ${homeLogo} ${escapeHtml(homeTeam.abbrev)}
+                          </td>
+                          <td style="padding: 8px; text-align: center;">
+                            ${game.played ? '<span class="tag" style="background: #22c55e; color: #000; font-size: 10px;">✓</span>' : (isUpcoming ? '<span class="tag" style="background: #666; color: #fff; font-size: 10px;">Upcoming</span>' : '<span class="tag" style="background: #333; color: #888; font-size: 10px;">Past</span>')}
+                          </td>
+                        </tr>
+                      `;
+                    }).join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }
+
     function viewPlayers() {
       const players = [...state.league.players].sort((a,b)=>b.ovr-a.ovr);
       return `
@@ -4440,6 +4871,7 @@
         else if (state.route === "standings") view.innerHTML = viewStandings();
         else if (state.route === "teams") view.innerHTML = viewTeams();
         else if (state.route === "rotations") view.innerHTML = viewRotations();
+        else if (state.route === "schedule") view.innerHTML = viewSchedule();
         else if (state.route === "players") view.innerHTML = viewPlayers();
         else view.innerHTML = `<div class="card"><div class="bd">Unknown route.</div></div>`;
       }
@@ -4727,6 +5159,38 @@
             state.league.rotations[teamId].coachAdjustments = coachAdjCheckbox.checked;
             saveCurrentLeague();
             showBanner("success", coachAdjCheckbox.checked ? "✓ Coach adjustments ON" : "✓ Coach adjustments OFF");
+          });
+        }
+      }
+
+      // SCHEDULE PAGE HANDLERS
+      if (state.route === "schedule") {
+        // Schedule tab buttons
+        const schedTabToday = document.getElementById("schedTabToday");
+        const schedTabSeason = document.getElementById("schedTabSeason");
+        
+        if (schedTabToday) {
+          schedTabToday.addEventListener("click", () => {
+            state.scheduleTab = "today";
+            render();
+          });
+        }
+        
+        if (schedTabSeason) {
+          schedTabSeason.addEventListener("click", () => {
+            state.scheduleTab = "season";
+            render();
+          });
+        }
+        
+        // Simulate Today button
+        const simTodayBtn = document.getElementById("simTodayBtn");
+        if (simTodayBtn) {
+          simTodayBtn.addEventListener("click", async () => {
+            simDay();
+            await saveCurrentLeague();
+            render();
+            showBanner("success", `✓ Simulated day ${state.league.meta.day}`);
           });
         }
       }
@@ -5060,7 +5524,7 @@
     // Hash routing
     window.addEventListener("hashchange", () => {
       const route = (location.hash || "#home").replace("#","").trim();
-      const known = ["home","dashboard","league","standings","teams","rotations","players"];
+      const known = ["home","dashboard","league","standings","teams","rotations","schedule","players"];
       setRoute(known.includes(route) ? route : "home");
     });
 
