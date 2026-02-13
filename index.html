@@ -1199,7 +1199,7 @@
      *   v0: Original - implicit version if schemaVersion missing
      *   v1: Core structure (meta, teams, players, log)
      **********************/
-    const CURRENT_SCHEMA_VERSION = 7;
+    const CURRENT_SCHEMA_VERSION = 8;
     const inMemorySaves = [];
     const inMemoryLeagues = {};
 
@@ -1666,6 +1666,229 @@
 
       return { primary, tags: tags.slice(0, 2) }; // max 2 tags
     }
+
+    /**
+     * Generate player personality traits
+     * Returns object with 9 personality dimensions (all 0-100)
+     */
+    function generatePersonality(pos = "SF", region = "NA") {
+      // Base baseline = 50, variance range = +/- 25
+      function rollTrait(baseOffset = 0) {
+        const variance = 25;
+        const rolled = 50 + baseOffset + randInt(-variance, variance);
+        return clamp(rolled, 0, 100);
+      }
+
+      let personality = {
+        workEthic: rollTrait(0),
+        loyalty: rollTrait(0),
+        ambition: rollTrait(0),
+        leadership: rollTrait(0),
+        ego: rollTrait(0),
+        temperament: rollTrait(0),
+        clutch: rollTrait(0),
+        durability: rollTrait(0),
+        coachability: rollTrait(0)
+      };
+
+      // Position-specific bias
+      if (pos === "PG" || pos === "SG") {
+        // Guards: more ego, more leadership variance
+        personality.ego = clamp(personality.ego + randInt(0, 15), 0, 100);
+        personality.leadership = clamp(personality.leadership + randInt(0, 10), 0, 100);
+      }
+      if (pos === "PG") {
+        personality.leadership = clamp(personality.leadership + randInt(5, 10), 0, 100);
+      }
+      if (pos === "SG") {
+        personality.ego = clamp(personality.ego + randInt(5, 10), 0, 100);
+      }
+      if (pos === "PF") {
+        // Power forwards: more temperament variance
+        personality.temperament = clamp(personality.temperament + randInt(-10, 10), 0, 100);
+      }
+      if (pos === "C") {
+        // Centers: more leadership
+        personality.leadership = clamp(personality.leadership + randInt(5, 15), 0, 100);
+      }
+
+      // Region-specific bias
+      if (region === "USA") {
+        personality.ego = clamp(personality.ego + randInt(0, 8), 0, 100);
+      } else if (region === "EUROPE") {
+        personality.coachability = clamp(personality.coachability + randInt(5, 12), 0, 100);
+      } else if (region === "AFRICA") {
+        personality.durability = clamp(personality.durability + randInt(5, 15), 0, 100);
+      }
+
+      return personality;
+    }
+
+    /**
+     * Compute personality tags from trait values
+     * Returns array of 0-3 personality badges
+     */
+    function computePersonalityTags(p) {
+      if (!p.personality) return [];
+
+      const pers = p.personality;
+      const tags = [];
+
+      if (pers.workEthic > 80) tags.push("Gym Rat");
+      if (pers.loyalty > 80) tags.push("Franchise Loyal");
+      if (pers.ambition > 85) tags.push("Ring Chaser");
+      if (pers.leadership > 80) tags.push("Locker Room Anchor");
+      if (pers.ego > 85) tags.push("Ball Dominant");
+      if (pers.temperament < 30) tags.push("Volatile");
+      if (pers.clutch > 85) tags.push("Clutch Performer");
+      if (pers.durability > 85) tags.push("Ironman");
+      if (pers.coachability > 80) tags.push("System Player");
+
+      return tags.slice(0, 3);
+    }
+
+    /**
+     * Compute team chemistry from roster
+     * Returns 0-100 chemistry score
+     */
+    function computeTeamChemistry(players) {
+      if (!players || players.length === 0) return 50;
+
+      let totalLeadership = 0;
+      let totalEgo = 0;
+      let volatileCount = 0;
+
+      players.forEach(p => {
+        if (p.personality) {
+          totalLeadership += p.personality.leadership;
+          totalEgo += p.personality.ego;
+          if (p.personality.temperament < 40) volatileCount++;
+        }
+      });
+
+      const avgLeadership = totalLeadership / players.length;
+      const avgEgo = totalEgo / players.length;
+      const volatilePenalty = volatileCount * 3;
+
+      const chemistry = 50 + (avgLeadership * 0.4) - (avgEgo * 0.2) - volatilePenalty;
+      return clamp(chemistry, 10, 100);
+    }
+
+    /**
+     * Compute player morale from personality and team/individual context
+     */
+    function computeMorale(player, team, players, isWinning) {
+      let morale = 50;
+
+      if (player.personality) {
+        const pers = player.personality;
+        // Loyalty bonus/penalty
+        morale += (pers.loyalty - 50) * 0.1;
+        // Ambition: boost if winning, penalty if losing
+        morale += (isWinning ? 1 : -1) * (pers.ambition - 50) * 0.05;
+        // Ego penalty if not matching role expectation (approximated by low stats/playtime)
+        if (player.stats && player.stats.gp < 10) {
+          morale -= (pers.ego - 50) * 0.1;
+        }
+      }
+
+      // Team leadership bonus
+      const teamChemistry = computeTeamChemistry(players);
+      morale += (teamChemistry - 50) * 0.1;
+
+      return clamp(morale, 0, 100);
+    }
+
+    /**
+     * Get development multiplier from personality
+     * Affects offseason rating growth
+     */
+    function getDevelopmentMultiplier(player) {
+      if (!player.personality) return 1.0;
+
+      const pers = player.personality;
+      let multiplier = 1.0;
+
+      multiplier += (pers.workEthic - 50) * 0.005;
+      multiplier += (pers.coachability - 50) * 0.003;
+
+      return clamp(multiplier, 0.85, 1.15); // ±15% range
+    }
+
+    /**
+     * Get contract salary multiplier from personality
+     * Affects salary demands during contract negotiations
+     */
+    function getSalaryMultiplier(player, teamWinning) {
+      if (!player.personality) return 1.0;
+
+      const pers = player.personality;
+      let multiplier = 1.0;
+
+      // Ambition boost if team losing
+      if (!teamWinning && pers.ambition > 70) {
+        multiplier += 0.1;
+      }
+
+      // Ego-based demands
+      multiplier += (pers.ego - 50) * 0.002;
+
+      // Loyalty discount
+      multiplier -= (pers.loyalty - 50) * 0.002;
+
+      return clamp(multiplier, 0.8, 1.3); // ±20/+30% range
+    }
+
+    /**
+     * Get trade value modifier from personality
+     * Affects perceived value in trades
+     */
+    function getTradeValueModifier(player, isUnhappy = false) {
+      if (!player.personality) return 1.0;
+
+      const pers = player.personality;
+      let modifier = 1.0;
+
+      // Work ethic increases value
+      modifier += (pers.workEthic - 50) * 0.001;
+
+      // Durability increases value
+      modifier += (pers.durability - 50) * 0.001;
+
+      // High ego reduces value if unhappy
+      if (isUnhappy) {
+        modifier -= (pers.ego - 50) * 0.0005;
+      }
+
+      return clamp(modifier, 0.85, 1.15);
+    }
+
+    /**
+     * Get injury frequency modifier from durability
+     * Affects injury chance in simulations
+     */
+    function getInjuryModifier(player) {
+      if (!player.personality) return 1.0;
+
+      const durability = player.personality.durability;
+      return clamp(1.0 - ((durability - 50) * 0.005), 0.75, 1.25); // durability reduces injury risk
+    }
+
+    /**
+     * Get clutch performance boost from personality
+     * Small temporary boost in late-game situations
+     */
+    function getClutchBoost(player) {
+      if (!player.personality) return 0;
+
+      const clutch = player.personality.clutch;
+      return (clutch - 50) * 0.02; // Max +/- 1 OVR equivalent in clutch moments
+    }
+
+    /**
+     * Generate player bio (nationality, hometown, college)
+     */
+    function generateBio(pos) {
       // Determine nationality: 70% USA, 30% International
       const isUSA = Math.random() < 0.7;
       let country, hometown, college;
@@ -1895,6 +2118,13 @@
           player.archetype = archetype.primary;
           player.archetypeTags = archetype.tags;
 
+          // Generate personality
+          player.personality = generatePersonality(player.pos, region);
+          player.personalityTags = computePersonalityTags(player);
+          
+          // Initialize morale
+          player.morale = computeMorale(player, team, [], true);
+
           players.push(player);
           playerIdx++;
         }
@@ -1974,6 +2204,13 @@
         const archetype = computeArchetype(player);
         player.archetype = archetype.primary;
         player.archetypeTags = archetype.tags;
+        
+        // Generate personality
+        player.personality = generatePersonality(player.pos, region);
+        player.personalityTags = computePersonalityTags(player);
+        
+        // Initialize morale
+        player.morale = 50;
         
         // Ensure player identity is valid (final safety check)
         ensurePlayerIdentity(player, null, teams);
@@ -2236,6 +2473,26 @@
             v = 7;
             league.schemaVersion = 7;
             console.log("[Migration] ✓ v6 → v7 complete");
+          
+          } else if (v === 7) {
+            // v7 → v8: Generate personality for all players
+            console.log("[Migration] Applying v7 → v8: Generating player personality traits");
+            
+            league.players = league.players || [];
+            
+            league.players.forEach(player => {
+              // Only generate if missing - don't overwrite existing personality
+              if (!player.personality) {
+                const region = regionForCountry(player.country || "USA");
+                player.personality = generatePersonality(player.pos || "SF", region);
+                player.personalityTags = computePersonalityTags(player);
+                player.morale = 50; // Default starting morale
+              }
+            });
+            
+            v = 8;
+            league.schemaVersion = 8;
+            console.log("[Migration] ✓ v7 → v8 complete");
           }
           
           else {
@@ -2813,11 +3070,14 @@
       const contractInfo = getPlayerContractInfo(player);
       
       return `
-        <div id="playerModalBackdrop" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); z-index: 9998; cursor: pointer;"></div>
-        <div id="playerModal" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; max-width: 500px; max-height: 90vh; background: #0d1117; border: 1px solid #60a5fa; border-radius: 8px; box-shadow: 0 20px 60px rgba(0,0,0,0.8); z-index: 9999; overflow-y: auto; padding: 24px;">
+        <div id="playerModalBackdrop" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 9998; cursor: pointer;"></div>
+        <div id="playerModal" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100vh; background: #0d1117; z-index: 9999; overflow-y: auto; padding: 24px;">
           
           <!-- Close button -->
-          <button id="playerModalClose" style="position: absolute; top: 16px; right: 16px; background: none; border: none; color: #60a5fa; font-size: 28px; cursor: pointer; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">✕</button>
+          <button id="playerModalClose" style="position: fixed; top: 24px; right: 24px; background: none; border: none; color: #60a5fa; font-size: 28px; cursor: pointer; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; z-index: 10000;">✕</button>
+          
+          <!-- Content wrapper with max-width -->
+          <div style="max-width: 900px; margin: 0 auto;">
           
           <!-- Header -->
           <div style="margin-bottom: 24px;">
@@ -2934,6 +3194,39 @@
             ` : ''}
           </div>
           
+          <!-- Personality Card -->
+          <div style="background: rgba(34,197,94,0.05); border: 1px solid rgba(34,197,94,0.2); border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+            <h3 style="font-size: 14px; font-weight: 600; color: #22c55e; text-transform: uppercase; letter-spacing: 1px; margin: 0 0 12px 0;">Personality & Morale</h3>
+            
+            ${player.personality ? `
+              <div style="margin-bottom: 12px;">
+                <div style="color: #ccc; font-size: 13px; margin-bottom: 8px;">
+                  <span style="color: #888;">Morale:</span> <strong style="color: ${player.morale > 70 ? '#22c55e' : player.morale > 40 ? '#eab308' : '#ef4444'};">${Math.round(player.morale)}/100</strong>
+                </div>
+                
+                ${(player.personalityTags || []).length > 0 ? `
+                  <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px;">
+                    ${player.personalityTags.map(tag => `<span style="background: rgba(34,197,94,0.3); color: #86efac; padding: 6px 12px; border-radius: 20px; font-size: 11px; font-weight: 600;">${escapeHtml(tag)}</span>`).join('')}
+                  </div>
+                ` : ''}
+              </div>
+              
+              <div style="font-size: 12px;">
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; line-height: 1.4;">
+                  <div><span style="color: #888;">Work Ethic:</span> <span style="color: #fff; font-weight: 600;">${player.personality.workEthic}</span></div>
+                  <div><span style="color: #888;">Loyalty:</span> <span style="color: #fff; font-weight: 600;">${player.personality.loyalty}</span></div>
+                  <div><span style="color: #888;">Ambition:</span> <span style="color: #fff; font-weight: 600;">${player.personality.ambition}</span></div>
+                  <div><span style="color: #888;">Leadership:</span> <span style="color: #fff; font-weight: 600;">${player.personality.leadership}</span></div>
+                  <div><span style="color: #888;">Ego:</span> <span style="color: #fff; font-weight: 600;">${player.personality.ego}</span></div>
+                  <div><span style="color: #888;">Temperament:</span> <span style="color: #fff; font-weight: 600;">${player.personality.temperament}</span></div>
+                  <div><span style="color: #888;">Clutch:</span> <span style="color: #fff; font-weight: 600;">${player.personality.clutch}</span></div>
+                  <div><span style="color: #888;">Durability:</span> <span style="color: #fff; font-weight: 600;">${player.personality.durability}</span></div>
+                  <div><span style="color: #888;">Coachability:</span> <span style="color: #fff; font-weight: 600;">${player.personality.coachability}</span></div>
+                </div>
+              </div>
+            ` : ''}
+          </div>
+          
           <!-- Contract Card -->
           <div style="background: rgba(52,211,153,0.05); border: 1px solid rgba(52,211,153,0.2); border-radius: 8px; padding: 16px;">
             <h3 style="font-size: 14px; font-weight: 600; color: #34d399; text-transform: uppercase; letter-spacing: 1px; margin: 0 0 12px 0;">Contract</h3>
@@ -2961,6 +3254,7 @@
             </div>
           </div>
           
+          </div> <!-- End content wrapper -->
         </div>
       `;
     }
