@@ -6751,6 +6751,16 @@
               schemaVersion: CURRENT_SCHEMA_VERSION
             };
 
+            // Assign conferences/divisions and generate schedule
+            assignConferencesAndDivisions(state.league);
+            state.league.schedule = generateSchedule(state.league);
+
+            // Initialize rotations for all teams
+            state.league.rotations = {};
+            selectedTeams.forEach(team => {
+              state.league.rotations[team.id] = initializeRotations(team.id, players);
+            });
+
             state.currentSaveId = newId;
             setSaveStatus("Created");
 
