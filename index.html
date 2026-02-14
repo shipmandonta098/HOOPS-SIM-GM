@@ -3230,7 +3230,10 @@
           tickMs: 250,
           timerId: null,
           possessionsPerTick: 1,
-          lastRenderAt: 0
+          lastRenderAt: 0,
+          view: "pbp",
+          lastBoxRenderAt: 0,
+          lastCompareRenderAt: 0
         }
       }
     };
@@ -3892,6 +3895,24 @@
       // Render PBP feed
       updateWatchPBP();
 
+      // Throttle box score and compare rendering (only every second)
+      const now = Date.now();
+      if (state.live.watch.view === 'box' && (now - state.live.watch.lastBoxRenderAt) > 1000) {
+        state.live.watch.lastBoxRenderAt = now;
+        const wbEl = document.getElementById("watchBoxScore");
+        if (wbEl) {
+          wbEl.innerHTML = renderWatchBoxScore();
+        }
+      }
+
+      if (state.live.watch.view === 'compare' && (now - state.live.watch.lastCompareRenderAt) > 1000) {
+        state.live.watch.lastCompareRenderAt = now;
+        const wcEl = document.getElementById("watchCompare");
+        if (wcEl) {
+          wcEl.innerHTML = renderWatchCompare();
+        }
+      }
+
       // Update control buttons
       updateWatchControls();
     }
@@ -4004,6 +4025,291 @@
             ? "#fff"
             : "#000";
         }
+      }
+    }
+
+    function computeTeamTotals(teamStats) {
+      const totals = {
+        pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0,
+        fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0
+      };
+      
+      Object.values(teamStats).forEach(playerStats => {
+        Object.keys(totals).forEach(key => {
+          totals[key] += playerStats[key] || 0;
+        });
+      });
+      
+      return totals;
+    }
+
+    function estimatePlayerMinutes(playerStats) {
+      const usage = (playerStats.fga || 0) + (playerStats.ast || 0) + (playerStats.reb || 0) + (playerStats.tov || 0);
+      return Math.min(48, Math.max(0, Math.round(usage * 0.6)));
+    }
+
+    function renderWatchBoxScore() {
+      const lg = state.ui.liveGame;
+      if (!lg) return '';
+
+      const homeTeam = teamById(lg.homeTid);
+      const awayTeam = teamById(lg.awayTid);
+
+      const homePlayerIds = Object.keys(lg.homeStats);
+      const awayPlayerIds = Object.keys(lg.awayStats);
+
+      const homePlayers = homePlayerIds.map(pid => ({
+        id: pid,
+        ...state.league.players.find(p => p.id === pid),
+        stats: lg.homeStats[pid]
+      })).sort((a, b) => (b.stats.pts || 0) - (a.stats.pts || 0));
+
+      const awayPlayers = awayPlayerIds.map(pid => ({
+        id: pid,
+        ...state.league.players.find(p => p.id === pid),
+        stats: lg.awayStats[pid]
+      })).sort((a, b) => (b.stats.pts || 0) - (a.stats.pts || 0));
+
+      const homeTotal = computeTeamTotals(lg.homeStats);
+      const awayTotal = computeTeamTotals(lg.awayStats);
+
+      const fgPct = (total) => total.fga > 0 ? ((total.fgm / total.fga) * 100).toFixed(1) : "0.0";
+      const tpPct = (total) => total.tpa > 0 ? ((total.tpm / total.tpa) * 100).toFixed(1) : "0.0";
+      const ftPct = (total) => total.fta > 0 ? ((total.ftm / total.fta) * 100).toFixed(1) : "0.0";
+
+      const boxHTML = `
+        <div style="margin-bottom: 24px;">
+          <div style="font-size: 14px; font-weight: 600; color: #60a5fa; margin-bottom: 10px;">${awayTeam.abbrev} Box Score</div>
+          <div style="overflow-x: auto;">
+            <table style="width: 100%; font-size: 11px; border-collapse: collapse; color: #ccc;">
+              <thead>
+                <tr style="border-bottom: 1px solid #444;">
+                  <th style="text-align: left; padding: 6px;">Player</th>
+                  <th style="text-align: center; padding: 6px;">MIN</th>
+                  <th style="text-align: center; padding: 6px;">PTS</th>
+                  <th style="text-align: center; padding: 6px;">REB</th>
+                  <th style="text-align: center; padding: 6px;">AST</th>
+                  <th style="text-align: center; padding: 6px;">STL</th>
+                  <th style="text-align: center; padding: 6px;">BLK</th>
+                  <th style="text-align: center; padding: 6px;">TOV</th>
+                  <th style="text-align: center; padding: 6px;">FG</th>
+                  <th style="text-align: center; padding: 6px;">3PT</th>
+                  <th style="text-align: center; padding: 6px;">FT</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${awayPlayers.map(p => {
+                  const s = p.stats;
+                  const min = estimatePlayerMinutes(s);
+                  return `
+                    <tr style="border-bottom: 1px solid #333;">
+                      <td style="text-align: left; padding: 6px; color: #aaa;">${(p.firstName + ' ' + p.lastName).substring(0, 12)}</td>
+                      <td style="text-align: center; padding: 6px;">${min}</td>
+                      <td style="text-align: center; padding: 6px; color: #60a5fa; font-weight: 600;">${s.pts || 0}</td>
+                      <td style="text-align: center; padding: 6px;">${s.reb || 0}</td>
+                      <td style="text-align: center; padding: 6px;">${s.ast || 0}</td>
+                      <td style="text-align: center; padding: 6px;">${s.stl || 0}</td>
+                      <td style="text-align: center; padding: 6px;">${s.blk || 0}</td>
+                      <td style="text-align: center; padding: 6px;">${s.tov || 0}</td>
+                      <td style="text-align: center; padding: 6px;">${s.fgm || 0}-${s.fga || 0}</td>
+                      <td style="text-align: center; padding: 6px;">${s.tpm || 0}-${s.tpa || 0}</td>
+                      <td style="text-align: center; padding: 6px;">${s.ftm || 0}-${s.fta || 0}</td>
+                    </tr>
+                  `;
+                }).join('')}
+                <tr style="border-top: 2px solid #60a5fa; font-weight: 600; background: rgba(96,165,250,0.05);">
+                  <td style="text-align: left; padding: 6px;">TEAM</td>
+                  <td style="text-align: center; padding: 6px;"></td>
+                  <td style="text-align: center; padding: 6px;">${awayTotal.pts}</td>
+                  <td style="text-align: center; padding: 6px;">${awayTotal.reb}</td>
+                  <td style="text-align: center; padding: 6px;">${awayTotal.ast}</td>
+                  <td style="text-align: center; padding: 6px;">${awayTotal.stl}</td>
+                  <td style="text-align: center; padding: 6px;">${awayTotal.blk}</td>
+                  <td style="text-align: center; padding: 6px;">${awayTotal.tov}</td>
+                  <td style="text-align: center; padding: 6px;">${awayTotal.fgm}-${awayTotal.fga} (${fgPct(awayTotal)}%)</td>
+                  <td style="text-align: center; padding: 6px;">${awayTotal.tpm}-${awayTotal.tpa} (${tpPct(awayTotal)}%)</td>
+                  <td style="text-align: center; padding: 6px;">${awayTotal.ftm}-${awayTotal.fta} (${ftPct(awayTotal)}%)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div>
+          <div style="font-size: 14px; font-weight: 600; color: #22c55e; margin-bottom: 10px;">${homeTeam.abbrev} Box Score</div>
+          <div style="overflow-x: auto;">
+            <table style="width: 100%; font-size: 11px; border-collapse: collapse; color: #ccc;">
+              <thead>
+                <tr style="border-bottom: 1px solid #444;">
+                  <th style="text-align: left; padding: 6px;">Player</th>
+                  <th style="text-align: center; padding: 6px;">MIN</th>
+                  <th style="text-align: center; padding: 6px;">PTS</th>
+                  <th style="text-align: center; padding: 6px;">REB</th>
+                  <th style="text-align: center; padding: 6px;">AST</th>
+                  <th style="text-align: center; padding: 6px;">STL</th>
+                  <th style="text-align: center; padding: 6px;">BLK</th>
+                  <th style="text-align: center; padding: 6px;">TOV</th>
+                  <th style="text-align: center; padding: 6px;">FG</th>
+                  <th style="text-align: center; padding: 6px;">3PT</th>
+                  <th style="text-align: center; padding: 6px;">FT</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${homePlayers.map(p => {
+                  const s = p.stats;
+                  const min = estimatePlayerMinutes(s);
+                  return `
+                    <tr style="border-bottom: 1px solid #333;">
+                      <td style="text-align: left; padding: 6px; color: #aaa;">${(p.firstName + ' ' + p.lastName).substring(0, 12)}</td>
+                      <td style="text-align: center; padding: 6px;">${min}</td>
+                      <td style="text-align: center; padding: 6px; color: #22c55e; font-weight: 600;">${s.pts || 0}</td>
+                      <td style="text-align: center; padding: 6px;">${s.reb || 0}</td>
+                      <td style="text-align: center; padding: 6px;">${s.ast || 0}</td>
+                      <td style="text-align: center; padding: 6px;">${s.stl || 0}</td>
+                      <td style="text-align: center; padding: 6px;">${s.blk || 0}</td>
+                      <td style="text-align: center; padding: 6px;">${s.tov || 0}</td>
+                      <td style="text-align: center; padding: 6px;">${s.fgm || 0}-${s.fga || 0}</td>
+                      <td style="text-align: center; padding: 6px;">${s.tpm || 0}-${s.tpa || 0}</td>
+                      <td style="text-align: center; padding: 6px;">${s.ftm || 0}-${s.fta || 0}</td>
+                    </tr>
+                  `;
+                }).join('')}
+                <tr style="border-top: 2px solid #22c55e; font-weight: 600; background: rgba(34,197,94,0.05);">
+                  <td style="text-align: left; padding: 6px;">TEAM</td>
+                  <td style="text-align: center; padding: 6px;"></td>
+                  <td style="text-align: center; padding: 6px;">${homeTotal.pts}</td>
+                  <td style="text-align: center; padding: 6px;">${homeTotal.reb}</td>
+                  <td style="text-align: center; padding: 6px;">${homeTotal.ast}</td>
+                  <td style="text-align: center; padding: 6px;">${homeTotal.stl}</td>
+                  <td style="text-align: center; padding: 6px;">${homeTotal.blk}</td>
+                  <td style="text-align: center; padding: 6px;">${homeTotal.tov}</td>
+                  <td style="text-align: center; padding: 6px;">${homeTotal.fgm}-${homeTotal.fga} (${fgPct(homeTotal)}%)</td>
+                  <td style="text-align: center; padding: 6px;">${homeTotal.tpm}-${homeTotal.tpa} (${tpPct(homeTotal)}%)</td>
+                  <td style="text-align: center; padding: 6px;">${homeTotal.ftm}-${homeTotal.fta} (${ftPct(homeTotal)}%)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+
+      return boxHTML;
+    }
+
+    function renderWatchCompare() {
+      const lg = state.ui.liveGame;
+      if (!lg) return '';
+
+      const homeTeam = teamById(lg.homeTid);
+      const awayTeam = teamById(lg.awayTid);
+
+      const homeTotal = computeTeamTotals(lg.homeStats);
+      const awayTotal = computeTeamTotals(lg.awayStats);
+
+      const fgPct = (total) => total.fga > 0 ? ((total.fgm / total.fga) * 100).toFixed(1) : "0.0";
+      const tpPct = (total) => total.tpa > 0 ? ((total.tpm / total.tpa) * 100).toFixed(1) : "0.0";
+      const ftPct = (total) => total.fta > 0 ? ((total.ftm / total.fta) * 100).toFixed(1) : "0.0";
+
+      const stats = [
+        { label: 'Points', key: 'pts', format: 'val' },
+        { label: 'FG%', key: 'fg', format: 'pct', fgm: 'fgm', fga: 'fga' },
+        { label: '3P%', key: '3p', format: 'pct', fgm: 'tpm', fga: 'tpa' },
+        { label: 'FT%', key: 'ft', format: 'pct', fgm: 'ftm', fga: 'fta' },
+        { label: 'Rebounds', key: 'reb', format: 'val' },
+        { label: 'Assists', key: 'ast', format: 'val' },
+        { label: 'Turnovers', key: 'tov', format: 'val' },
+        { label: 'Steals', key: 'stl', format: 'val' },
+        { label: 'Blocks', key: 'blk', format: 'val' }
+      ];
+
+      const getValue = (total, stat) => {
+        if (stat.format === 'pct') {
+          const fgm = total[stat.fgm] || 0;
+          const fga = total[stat.fga] || 0;
+          return fga > 0 ? ((fgm / fga) * 100).toFixed(1) : "0.0";
+        }
+        return total[stat.key] || 0;
+      };
+
+      const compareHTML = `
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px;">
+          ${stats.map(stat => {
+            const awayVal = getValue(awayTotal, stat);
+            const homeVal = getValue(homeTotal, stat);
+            
+            let awayHighlight = '';
+            let homeHighlight = '';
+            
+            if (stat.label === 'Turnovers') {
+              // Lower is better for turnovers
+              if (parseFloat(awayVal) < parseFloat(homeVal)) {
+                awayHighlight = 'color: #22c55e; font-weight: 600;';
+              } else {
+                homeHighlight = 'color: #22c55e; font-weight: 600;';
+              }
+            } else {
+              // Higher is better for other stats
+              if (parseFloat(awayVal) > parseFloat(homeVal)) {
+                awayHighlight = 'color: #60a5fa; font-weight: 600;';
+              } else {
+                homeHighlight = 'color: #22c55e; font-weight: 600;';
+              }
+            }
+
+            return `
+              <div style="background: rgba(0,0,0,0.3); border: 1px solid #333; border-radius: 6px; padding: 14px;">
+                <div style="font-size: 11px; color: #888; text-transform: uppercase; margin-bottom: 8px; text-align: center; font-weight: 600;">${stat.label}</div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; align-items: center;">
+                  <div style="text-align: center; font-size: 16px; ${awayHighlight}">${
+                    stat.format === 'pct' ? awayVal + '%' : awayVal
+                  }</div>
+                  <div style="text-align: center; font-size: 10px; color: #666; font-weight: 600;">|</div>
+                  <div style="text-align: center; font-size: 16px; ${homeHighlight}">${
+                    stat.format === 'pct' ? homeVal + '%' : homeVal
+                  }</div>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 6px; font-size: 9px; color: #666;">
+                  <div style="text-align: center;">${awayTeam.abbrev}</div>
+                  <div></div>
+                  <div style="text-align: center;">${homeTeam.abbrev}</div>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
+
+      return compareHTML;
+    }
+
+    function setWatchView(view) {
+      state.live.watch.view = view;
+      renderWatchActiveView();
+    }
+
+    function renderWatchActiveView() {
+      const wbWrapper = document.getElementById("watchBoxWrapper");
+      const wcWrapper = document.getElementById("watchCompareWrapper");
+      const ppWrapper = document.getElementById("watchPBPWrapper");
+
+      if (state.live.watch.view === 'box') {
+        if (ppWrapper) ppWrapper.style.display = 'none';
+        if (wcWrapper) wcWrapper.style.display = 'none';
+        if (wbWrapper) {
+          wbWrapper.style.display = 'block';
+          wbWrapper.innerHTML = renderWatchBoxScore();
+        }
+      } else if (state.live.watch.view === 'compare') {
+        if (ppWrapper) ppWrapper.style.display = 'none';
+        if (wbWrapper) wbWrapper.style.display = 'none';
+        if (wcWrapper) {
+          wcWrapper.style.display = 'block';
+          wcWrapper.innerHTML = renderWatchCompare();
+        }
+      } else {
+        if (wbWrapper) wbWrapper.style.display = 'none';
+        if (wcWrapper) wcWrapper.style.display = 'none';
+        if (ppWrapper) ppWrapper.style.display = 'block';
       }
     }
 
@@ -5111,7 +5417,7 @@
     }
 
     /**
-     * Watch Game modal view - live play-by-play
+     * Watch Game modal view - live play-by-play, box score, team comparison
      */
     function viewWatchGame() {
       const lg = state.ui.liveGame;
@@ -5212,43 +5518,76 @@
               Q${lg.quarter} · ${formatClockTime(lg.clock)}
             </div>
 
-            <!-- Controls -->
-            <div style="display: flex; gap: 12px; padding: 16px; border-bottom: 1px solid #333; flex-wrap: wrap; align-items: center; flex: 0 0 auto;">
-              ${!lg.isFinal
-                ? `
-                <button id="watchPlayPauseBtn" style="min-width: 100px; padding: 10px 16px; font-size: 13px; background: ${state.live.watch.isPlaying ? '#ef4444' : '#22c55e'}; border: none; border-radius: 4px; cursor: pointer; color: ${state.live.watch.isPlaying ? '#fff' : '#000'}; font-weight: 600;" data-action="watch-toggle">
-                  ${state.live.watch.isPlaying ? '⏸ Pause' : '▶ Play'}
+            <!-- Controls and View Toggle -->
+            <div style="display: flex; flex-direction: column; gap: 8px; padding: 12px; border-bottom: 1px solid #333; flex: 0 0 auto;">
+              <!-- Play/Speed/Sim Controls -->
+              <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
+                ${!lg.isFinal
+                  ? `
+                  <button id="watchPlayPauseBtn" style="min-width: 100px; padding: 10px 16px; font-size: 13px; background: ${state.live.watch.isPlaying ? '#ef4444' : '#22c55e'}; border: none; border-radius: 4px; cursor: pointer; color: ${state.live.watch.isPlaying ? '#fff' : '#000'}; font-weight: 600;" data-action="watch-toggle">
+                    ${state.live.watch.isPlaying ? '⏸ Pause' : '▶ Play'}
+                  </button>
+                  <button id="watchSimToEndBtn" style="min-width: 100px; padding: 10px 16px; font-size: 13px; background: #3b82f6; border: none; border-radius: 4px; cursor: pointer; color: #fff; font-weight: 600;" data-action="watch-sim-end">
+                    ⏭ Sim to End
+                  </button>
+                  <div style="display: flex; gap: 6px; align-items: center; padding: 6px;">
+                    <span style="color: #888; font-size: 11px; font-weight: 700; text-transform: uppercase;">Speed:</span>
+                    ${[0.5, 1, 2, 4, 8].map(sp => `
+                      <button data-action="watch-speed" data-speed="${sp}" style="padding: 6px 10px; font-size: 11px; border: 1px solid ${state.live.watch.speed === sp ? '#60a5fa' : '#444'}; background: ${state.live.watch.speed === sp ? 'rgba(96,165,250,0.2)' : '#1a1a1a'}; border-radius: 3px; cursor: pointer; color: ${state.live.watch.speed === sp ? '#60a5fa' : '#888'}; font-weight: ${state.live.watch.speed === sp ? '600' : '400'};">
+                        ${sp}x
+                      </button>
+                    `).join('')}
+                  </div>
+                `
+                  : ''
+                }
+              </div>
+              
+              <!-- View Toggle -->
+              <div style="display: flex; gap: 6px; border-top: 1px solid #333; padding-top: 8px;">
+                <button data-action="watch-view" data-view="pbp" style="flex: 1; padding: 8px 12px; font-size: 12px; border: 1px solid ${state.live.watch.view === 'pbp' ? '#60a5fa' : '#444'}; background: ${state.live.watch.view === 'pbp' ? 'rgba(96,165,250,0.2)' : '#1a1a1a'}; border-radius: 4px; cursor: pointer; color: ${state.live.watch.view === 'pbp' ? '#60a5fa' : '#888'}; font-weight: ${state.live.watch.view === 'pbp' ? '600' : '400'};">
+                  📊 Play-by-Play
                 </button>
-                <button id="watchSimToEndBtn" style="min-width: 100px; padding: 10px 16px; font-size: 13px; background: #3b82f6; border: none; border-radius: 4px; cursor: pointer; color: #fff; font-weight: 600;" data-action="watch-sim-end">
-                  ⏭ Sim to End
+                <button data-action="watch-view" data-view="box" style="flex: 1; padding: 8px 12px; font-size: 12px; border: 1px solid ${state.live.watch.view === 'box' ? '#60a5fa' : '#444'}; background: ${state.live.watch.view === 'box' ? 'rgba(96,165,250,0.2)' : '#1a1a1a'}; border-radius: 4px; cursor: pointer; color: ${state.live.watch.view === 'box' ? '#60a5fa' : '#888'}; font-weight: ${state.live.watch.view === 'box' ? '600' : '400'};">
+                  📈 Box Score
                 </button>
-                <div style="display: flex; gap: 6px; align-items: center; padding: 6px;">
-                  <span style="color: #888; font-size: 11px; font-weight: 700; text-transform: uppercase;">Speed:</span>
-                  ${[0.5, 1, 2, 4, 8].map(sp => `
-                    <button data-action="watch-speed" data-speed="${sp}" style="padding: 6px 10px; font-size: 11px; border: 1px solid ${state.live.watch.speed === sp ? '#60a5fa' : '#444'}; background: ${state.live.watch.speed === sp ? 'rgba(96,165,250,0.2)' : '#1a1a1a'}; border-radius: 3px; cursor: pointer; color: ${state.live.watch.speed === sp ? '#60a5fa' : '#888'}; font-weight: ${state.live.watch.speed === sp ? '600' : '400'};">
-                      ${sp}x
-                    </button>
-                  `).join('')}
-                </div>
-              `
-                : ''
-              }
+                <button data-action="watch-view" data-view="compare" style="flex: 1; padding: 8px 12px; font-size: 12px; border: 1px solid ${state.live.watch.view === 'compare' ? '#60a5fa' : '#444'}; background: ${state.live.watch.view === 'compare' ? 'rgba(96,165,250,0.2)' : '#1a1a1a'}; border-radius: 4px; cursor: pointer; color: ${state.live.watch.view === 'compare' ? '#60a5fa' : '#888'}; font-weight: ${state.live.watch.view === 'compare' ? '600' : '400'};">
+                  🔄 Compare
+                </button>
+              </div>
             </div>
 
-            <!-- Play-by-Play -->
-            <div id="watchPBPFeed" style="padding: 16px; flex: 1; overflow-y: auto; background: rgba(0,0,0,0.2);">
-              ${lg.pbp.length === 0 ? `
-                <div style="text-align: center; color: #888; font-size: 13px; padding: 40px 0;">
-                  Game starting...
+            <!-- Main Content Area (Views) -->
+            <div style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.2);">
+              
+              <!-- Play-by-Play View -->
+              <div id="watchPBPWrapper" style="display: ${state.live.watch.view === 'pbp' ? 'block' : 'none'}; padding: 16px; height: 100%; overflow-y: auto;">
+                <div id="watchPBPFeed">
+                  ${lg.pbp.length === 0 ? `
+                    <div style="text-align: center; color: #888; font-size: 13px; padding: 40px 0;">
+                      Game starting...
+                    </div>
+                  ` : `
+                    ${lg.pbp.map(ev => `
+                      <div style="padding: 6px 0; border-bottom: 1px solid #333; font-size: 12px;">
+                        <span style="color: #888; font-weight: 600;">Q${ev.q} ${ev.t}</span><br/>
+                        <span style="color: #ccc;">${ev.text}</span>
+                      </div>
+                    `).reverse().join('')}
+                  `}
                 </div>
-              ` : `
-                ${lg.pbp.map(ev => `
-                  <div style="padding: 6px 0; border-bottom: 1px solid #333; font-size: 12px;">
-                    <span style="color: #888; font-weight: 600;">Q${ev.q} ${ev.t}</span><br/>
-                    <span style="color: #ccc;">${ev.text}</span>
-                  </div>
-                `).reverse().join('')}
-              `}
+              </div>
+
+              <!-- Box Score View -->
+              <div id="watchBoxWrapper" style="display: ${state.live.watch.view === 'box' ? 'block' : 'none'}; padding: 16px; height: 100%; overflow-y: auto;">
+                <div id="watchBoxScore"></div>
+              </div>
+
+              <!-- Team Comparison View -->
+              <div id="watchCompareWrapper" style="display: ${state.live.watch.view === 'compare' ? 'block' : 'none'}; padding: 16px; height: 100%; overflow-y: auto;">
+                <div id="watchCompare"></div>
+              </div>
+
             </div>
           </div>
         </div>
@@ -6094,6 +6433,20 @@
             const modal = document.getElementById("watchGameModalRoot");
             if (modal) {
               updateWatchControls();
+            }
+          }
+          
+          // View toggle (pbp, box, compare)
+          if (e.target.closest('[data-action="watch-view"]')) {
+            const btn = e.target.closest('[data-action="watch-view"]');
+            const newView = btn.dataset.view;
+            setWatchView(newView);
+            
+            // Re-render modal to update view toggle buttons
+            const modal = document.getElementById("watchGameModalRoot");
+            if (modal) {
+              modal.innerHTML = viewWatchGame();
+              updateWatchGameUI();
             }
           }
           
