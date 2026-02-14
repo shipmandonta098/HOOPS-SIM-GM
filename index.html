@@ -5151,33 +5151,33 @@
           <div style="background: #0f0f0f; width: 100%; height: 100%; display: flex; flex-direction: column; overflow: hidden; box-shadow: none;">
             
             <!-- Header -->
-            <div style="display: flex; justify-content: space-between; align-items: center; padding: 30px; border-bottom: 1px solid #333; flex: 0 0 auto;">
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px; border-bottom: 1px solid #333; flex: 0 0 auto;">
               <div style="flex: 1;">
-                <div style="font-size: 48px; font-weight: 700; margin-bottom: 8px;">
+                <div style="font-size: 28px; font-weight: 700; margin-bottom: 6px;">
                   ${awayLogo} ${awayTeam.abbrev} @ ${homeTeam.abbrev} ${homeLogo}
                 </div>
-                <div style="font-size: 14px; color: #888;">
+                <div style="font-size: 12px; color: #888;">
                   Season ${lg.season}, Day ${lg.day}
                 </div>
               </div>
-              <button id="watchExitBtn" style="background: #444; border: 1px solid #666; color: #fff; padding: 10px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 16px;">✕ Exit</button>
+              <button id="watchExitBtn" style="background: #444; border: 1px solid #666; color: #fff; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 12px;">✕ Exit</button>
             </div>
 
             <!-- Scoreboard and Leaders -->
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 40px; padding: 40px; border-bottom: 1px solid #333; flex: 0 0 auto;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 20px; border-bottom: 1px solid #333; flex: 0 0 auto;">
               
               <!-- Away Side -->
               <div>
-                <div style="background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.3); border-radius: 8px; padding: 20px; margin-bottom: 20px;">
-                  <div id="watchScoreAway" style="text-align: center; font-size: 96px; font-weight: 700; color: #60a5fa; margin-bottom: 8px; line-height: 1;">${lg.awayScore}</div>
-                  <div style="text-align: center; font-size: 18px; font-weight: 600;">${awayTeam.name}</div>
+                <div style="background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.3); border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+                  <div id="watchScoreAway" style="text-align: center; font-size: 64px; font-weight: 700; color: #60a5fa; margin-bottom: 6px; line-height: 1;">${lg.awayScore}</div>
+                  <div style="text-align: center; font-size: 15px; font-weight: 600;">${awayTeam.name}</div>
                 </div>
-                <div style="font-size: 12px; color: #888; font-weight: 600; text-transform: uppercase; margin-bottom: 12px;">Leaders</div>
+                <div style="font-size: 11px; color: #888; font-weight: 600; text-transform: uppercase; margin-bottom: 10px;">Leaders</div>
                 <div id="watchLeadersAway">
                   ${awayLeaders
                     .map(
                       p => `
-                    <div style="font-size: 12px; padding: 4px; color: #ccc; border-bottom: 1px solid #333;">
+                    <div style="font-size: 11px; padding: 4px 0; color: #ccc; border-bottom: 1px solid #333;">
                       ${p.firstName} ${p.lastName}: <span style="color: #60a5fa; font-weight: 600;">${p.stats.pts || 0} pts</span> · ${p.stats.reb || 0} reb · ${p.stats.ast || 0} ast
                     </div>
                   `
@@ -5188,16 +5188,16 @@
 
               <!-- Home Side -->
               <div>
-                <div style="background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.3); border-radius: 8px; padding: 20px; margin-bottom: 20px;">
-                  <div id="watchScoreHome" style="text-align: center; font-size: 96px; font-weight: 700; color: #22c55e; margin-bottom: 8px; line-height: 1;">${lg.homeScore}</div>
-                  <div style="text-align: center; font-size: 18px; font-weight: 600;">${homeTeam.name}</div>
+                <div style="background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.3); border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+                  <div id="watchScoreHome" style="text-align: center; font-size: 64px; font-weight: 700; color: #22c55e; margin-bottom: 6px; line-height: 1;">${lg.homeScore}</div>
+                  <div style="text-align: center; font-size: 15px; font-weight: 600;">${homeTeam.name}</div>
                 </div>
-                <div style="font-size: 12px; color: #888; font-weight: 600; text-transform: uppercase; margin-bottom: 12px;">Leaders</div>
+                <div style="font-size: 11px; color: #888; font-weight: 600; text-transform: uppercase; margin-bottom: 10px;">Leaders</div>
                 <div id="watchLeadersHome">
                   ${homeLeaders
                     .map(
                       p => `
-                    <div style="font-size: 13px; padding: 6px; color: #ccc; border-bottom: 1px solid #333;">
+                    <div style="font-size: 11px; padding: 4px 0; color: #ccc; border-bottom: 1px solid #333;">
                       ${p.firstName} ${p.lastName}: <span style="color: #22c55e; font-weight: 600;">${p.stats.pts || 0} pts</span> · ${p.stats.reb || 0} reb · ${p.stats.ast || 0} ast
                     </div>
                   `
@@ -5208,24 +5208,24 @@
             </div>
 
             <!-- Game Status -->
-            <div id="watchClock" style="padding: 20px; background: rgba(0,0,0,0.3); text-align: center; font-size: 32px; font-weight: 600; color: #eab308; flex: 0 0 auto;">
+            <div id="watchClock" style="padding: 16px; background: rgba(0,0,0,0.3); text-align: center; font-size: 24px; font-weight: 600; color: #eab308; flex: 0 0 auto;">
               Q${lg.quarter} · ${formatClockTime(lg.clock)}
             </div>
 
             <!-- Controls -->
-            <div style="display: flex; gap: 12px; padding: 20px; border-bottom: 1px solid #333; flex-wrap: wrap; align-items: center; flex: 0 0 auto;">
+            <div style="display: flex; gap: 12px; padding: 16px; border-bottom: 1px solid #333; flex-wrap: wrap; align-items: center; flex: 0 0 auto;">
               ${!lg.isFinal
                 ? `
-                <button id="watchPlayPauseBtn" style="min-width: 120px; padding: 12px 20px; font-size: 14px; background: ${state.live.watch.isPlaying ? '#ef4444' : '#22c55e'}; border: none; border-radius: 4px; cursor: pointer; color: ${state.live.watch.isPlaying ? '#fff' : '#000'}; font-weight: 600;" data-action="watch-toggle">
+                <button id="watchPlayPauseBtn" style="min-width: 100px; padding: 10px 16px; font-size: 13px; background: ${state.live.watch.isPlaying ? '#ef4444' : '#22c55e'}; border: none; border-radius: 4px; cursor: pointer; color: ${state.live.watch.isPlaying ? '#fff' : '#000'}; font-weight: 600;" data-action="watch-toggle">
                   ${state.live.watch.isPlaying ? '⏸ Pause' : '▶ Play'}
                 </button>
-                <button id="watchSimToEndBtn" style="min-width: 120px; padding: 12px 20px; font-size: 14px; background: #3b82f6; border: none; border-radius: 4px; cursor: pointer; color: #fff; font-weight: 600;" data-action="watch-sim-end">
+                <button id="watchSimToEndBtn" style="min-width: 100px; padding: 10px 16px; font-size: 13px; background: #3b82f6; border: none; border-radius: 4px; cursor: pointer; color: #fff; font-weight: 600;" data-action="watch-sim-end">
                   ⏭ Sim to End
                 </button>
-                <div style="display: flex; gap: 6px; align-items: center; padding: 8px;">
-                  <span style="color: #888; font-size: 12px; font-weight: 700; text-transform: uppercase;">Speed:</span>
+                <div style="display: flex; gap: 6px; align-items: center; padding: 6px;">
+                  <span style="color: #888; font-size: 11px; font-weight: 700; text-transform: uppercase;">Speed:</span>
                   ${[0.5, 1, 2, 4, 8].map(sp => `
-                    <button data-action="watch-speed" data-speed="${sp}" style="padding: 8px 12px; font-size: 12px; border: 2px solid ${state.live.watch.speed === sp ? '#60a5fa' : '#444'}; background: ${state.live.watch.speed === sp ? 'rgba(96,165,250,0.3)' : '#1a1a1a'}; border-radius: 4px; cursor: pointer; color: ${state.live.watch.speed === sp ? '#60a5fa' : '#888'}; font-weight: ${state.live.watch.speed === sp ? '700' : '400'};">
+                    <button data-action="watch-speed" data-speed="${sp}" style="padding: 6px 10px; font-size: 11px; border: 1px solid ${state.live.watch.speed === sp ? '#60a5fa' : '#444'}; background: ${state.live.watch.speed === sp ? 'rgba(96,165,250,0.2)' : '#1a1a1a'}; border-radius: 3px; cursor: pointer; color: ${state.live.watch.speed === sp ? '#60a5fa' : '#888'}; font-weight: ${state.live.watch.speed === sp ? '600' : '400'};">
                       ${sp}x
                     </button>
                   `).join('')}
@@ -5236,7 +5236,7 @@
             </div>
 
             <!-- Play-by-Play -->
-            <div id="watchPBPFeed" style="padding: 20px; flex: 1; overflow-y: auto; background: rgba(0,0,0,0.2);">
+            <div id="watchPBPFeed" style="padding: 16px; flex: 1; overflow-y: auto; background: rgba(0,0,0,0.2);">
               ${lg.pbp.length === 0 ? `
                 <div style="text-align: center; color: #888; font-size: 13px; padding: 40px 0;">
                   Game starting...
