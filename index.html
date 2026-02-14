@@ -3220,6 +3220,18 @@
         playerModalId: null,
         liveGameOpen: false,
         liveGame: null
+      },
+      live: {
+        watch: {
+          gameId: null,
+          isOpen: false,
+          isPlaying: false,
+          speed: 1,
+          tickMs: 250,
+          timerId: null,
+          possessionsPerTick: 1,
+          lastRenderAt: 0
+        }
       }
     };
 
@@ -3802,6 +3814,197 @@
       const mins = Math.floor(Math.abs(seconds) / 60);
       const secs = Math.abs(seconds) % 60;
       return `${mins}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    /**
+     * Watch Game Loop Management
+     */
+    function startWatchLoop() {
+      stopWatchLoop(); // Always clear first to prevent double timers
+      state.live.watch.isPlaying = true;
+      const baseTickMs = 250;
+      const adjustedTickMs = Math.max(40, Math.round(baseTickMs / state.live.watch.speed));
+      state.live.watch.timerId = setInterval(onWatchTick, adjustedTickMs);
+    }
+
+    function stopWatchLoop() {
+      if (state.live.watch.timerId) {
+        clearInterval(state.live.watch.timerId);
+        state.live.watch.timerId = null;
+      }
+      state.live.watch.isPlaying = false;
+    }
+
+    function onWatchTick() {
+      try {
+        if (!state.live.watch.isOpen || !state.ui.liveGame) {
+          stopWatchLoop();
+          return;
+        }
+
+        const lg = state.ui.liveGame;
+        if (lg.isFinal) {
+          stopWatchLoop();
+          return;
+        }
+
+        // Run multiple possessions based on speed
+        const possessionsThisTick = state.live.watch.possessionsPerTick;
+        for (let i = 0; i < possessionsThisTick && !lg.isFinal; i++) {
+          playNextPossession(lg);
+        }
+
+        // Update UI elements incrementally (DON'T re-render entire page)
+        updateWatchGameUI();
+      } catch (err) {
+        console.error("[Watch Tick Error]", err);
+        stopWatchLoop();
+        showBanner("error", "❌ Watch error: " + err.message);
+      }
+    }
+
+    function updateWatchGameUI() {
+      const lg = state.ui.liveGame;
+      if (!lg) return;
+
+      // Update score
+      const scoreAwayEl = document.getElementById("watchScoreAway");
+      if (scoreAwayEl) scoreAwayEl.textContent = lg.awayScore;
+
+      const scoreHomeEl = document.getElementById("watchScoreHome");
+      if (scoreHomeEl) scoreHomeEl.textContent = lg.homeScore;
+
+      // Update clock and quarter
+      const clockEl = document.getElementById("watchClock");
+      if (clockEl) {
+        if (lg.isFinal) {
+          clockEl.textContent = "FINAL";
+          clockEl.style.color = "#ef4444";
+        } else {
+          clockEl.textContent = `Q${lg.quarter} · ${formatClockTime(lg.clock)}`;
+          clockEl.style.color = "#eab308";
+        }
+      }
+
+      // Render leaders
+      updateWatchLeaders();
+
+      // Render PBP feed
+      updateWatchPBP();
+
+      // Update control buttons
+      updateWatchControls();
+    }
+
+    function updateWatchLeaders() {
+      const lg = state.ui.liveGame;
+      if (!lg) return;
+
+      const homeStatKeys = Object.keys(lg.homeStats);
+      const awayStatKeys = Object.keys(lg.awayStats);
+
+      const homeLeaders = homeStatKeys.length > 0
+        ? homeStatKeys
+            .map(pid => ({
+              ...state.league.players.find(p => p.id === pid),
+              stats: lg.homeStats[pid]
+            }))
+            .sort((a, b) => (b.stats?.pts || 0) - (a.stats?.pts || 0))
+            .slice(0, 3)
+        : [];
+
+      const awayLeaders = awayStatKeys.length > 0
+        ? awayStatKeys
+            .map(pid => ({
+              ...state.league.players.find(p => p.id === pid),
+              stats: lg.awayStats[pid]
+            }))
+            .sort((a, b) => (b.stats?.pts || 0) - (a.stats?.pts || 0))
+            .slice(0, 3)
+        : [];
+
+      // Update away leaders
+      const awayLeadersEl = document.getElementById("watchLeadersAway");
+      if (awayLeadersEl) {
+        awayLeadersEl.innerHTML = awayLeaders
+          .map(
+            p => `
+              <div style="font-size: 12px; padding: 4px; color: #ccc; border-bottom: 1px solid #333;">
+                ${p.firstName} ${p.lastName}: <span style="color: #60a5fa; font-weight: 600;">${p.stats.pts || 0} pts</span> · ${p.stats.reb || 0} reb · ${p.stats.ast || 0} ast
+              </div>
+            `
+          )
+          .join("");
+      }
+
+      // Update home leaders
+      const homeLeadersEl = document.getElementById("watchLeadersHome");
+      if (homeLeadersEl) {
+        homeLeadersEl.innerHTML = homeLeaders
+          .map(
+            p => `
+              <div style="font-size: 12px; padding: 4px; color: #ccc; border-bottom: 1px solid #333;">
+                ${p.firstName} ${p.lastName}: <span style="color: #22c55e; font-weight: 600;">${p.stats.pts || 0} pts</span> · ${p.stats.reb || 0} reb · ${p.stats.ast || 0} ast
+              </div>
+            `
+          )
+          .join("");
+      }
+    }
+
+    function updateWatchPBP() {
+      const lg = state.ui.liveGame;
+      const pbpEl = document.getElementById("watchPBPFeed");
+      if (!pbpEl || !lg) return;
+
+      // Check if user is near bottom (auto-scroll enabled)
+      const nearBottom =
+        pbpEl.scrollHeight - pbpEl.scrollTop - pbpEl.clientHeight < 80;
+
+      // Cap PBP display to last 120 entries for performance
+      const displayPBP = lg.pbp.slice(-120).reverse();
+
+      pbpEl.innerHTML =
+        displayPBP.length === 0
+          ? `<div style="text-align: center; color: #888; font-size: 13px; padding: 40px 0;">Game starting...</div>`
+          : displayPBP
+              .map(
+                ev => `
+                  <div style="padding: 6px 0; border-bottom: 1px solid #333; font-size: 12px;">
+                    <span style="color: #888; font-weight: 600;">Q${ev.q} ${ev.t}</span><br/>
+                    <span style="color: #ccc;">${ev.text}</span>
+                  </div>
+                `
+              )
+              .join("");
+
+      // Auto-scroll only if user is near bottom
+      if (nearBottom) {
+        pbpEl.scrollTop = pbpEl.scrollHeight;
+      }
+    }
+
+    function updateWatchControls() {
+      const lg = state.ui.liveGame;
+      if (!lg) return;
+
+      const playPauseBtn = document.getElementById("watchPlayPauseBtn");
+      if (playPauseBtn) {
+        if (lg.isFinal) {
+          playPauseBtn.style.display = "none";
+        } else {
+          playPauseBtn.style.display = "block";
+          playPauseBtn.textContent = state.live.watch.isPlaying
+            ? "⏸ Pause"
+            : "▶ Play";
+          playPauseBtn.style.background = state.live.watch.isPlaying
+            ? "#ef4444"
+            : "#22c55e";
+          playPauseBtn.style.color = state.live.watch.isPlaying
+            ? "#fff"
+            : "#000";
+        }
+      }
     }
 
     function simDay() {
@@ -4922,16 +5125,26 @@
       // Get top scorers
       const homeStatKeys = Object.keys(lg.homeStats);
       const awayStatKeys = Object.keys(lg.awayStats);
-      
-      const homeLeaders = homeStatKeys.length > 0 ? homeStatKeys
-        .map(pid => ({ ...state.league.players.find(p => p.id === pid), stats: lg.homeStats[pid] }))
-        .sort((a, b) => (b.stats?.pts || 0) - (a.stats?.pts || 0))
-        .slice(0, 3) : [];
-      
-      const awayLeaders = awayStatKeys.length > 0 ? awayStatKeys
-        .map(pid => ({ ...state.league.players.find(p => p.id === pid), stats: lg.awayStats[pid] }))
-        .sort((a, b) => (b.stats?.pts || 0) - (a.stats?.pts || 0))
-        .slice(0, 3) : [];
+
+      const homeLeaders = homeStatKeys.length > 0
+        ? homeStatKeys
+            .map(pid => ({
+              ...state.league.players.find(p => p.id === pid),
+              stats: lg.homeStats[pid]
+            }))
+            .sort((a, b) => (b.stats?.pts || 0) - (a.stats?.pts || 0))
+            .slice(0, 3)
+        : [];
+
+      const awayLeaders = awayStatKeys.length > 0
+        ? awayStatKeys
+            .map(pid => ({
+              ...state.league.players.find(p => p.id === pid),
+              stats: lg.awayStats[pid]
+            }))
+            .sort((a, b) => (b.stats?.pts || 0) - (a.stats?.pts || 0))
+            .slice(0, 3)
+        : [];
 
       return `
         <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px; overflow-y: auto;">
@@ -4956,47 +5169,70 @@
               <!-- Away Side -->
               <div>
                 <div style="background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.3); border-radius: 8px; padding: 12px; margin-bottom: 12px;">
-                  <div style="text-align: center; font-size: 32px; font-weight: 700; color: #60a5fa; margin-bottom: 4px;">${lg.awayScore}</div>
+                  <div id="watchScoreAway" style="text-align: center; font-size: 32px; font-weight: 700; color: #60a5fa; margin-bottom: 4px;">${lg.awayScore}</div>
                   <div style="text-align: center; font-size: 14px; font-weight: 600;">${awayTeam.name}</div>
                 </div>
                 <div style="font-size: 11px; color: #888; font-weight: 600; text-transform: uppercase; margin-bottom: 6px;">Leaders</div>
-                ${awayLeaders.map(p => `
-                  <div style="font-size: 12px; padding: 4px; color: #ccc; border-bottom: 1px solid #333;">
-                    ${p.firstName} ${p.lastName}: <span style="color: #60a5fa; font-weight: 600;">${p.stats.pts || 0} pts</span> · ${p.stats.reb || 0} reb · ${p.stats.ast || 0} ast
-                  </div>
-                `).join('')}
+                <div id="watchLeadersAway">
+                  ${awayLeaders
+                    .map(
+                      p => `
+                    <div style="font-size: 12px; padding: 4px; color: #ccc; border-bottom: 1px solid #333;">
+                      ${p.firstName} ${p.lastName}: <span style="color: #60a5fa; font-weight: 600;">${p.stats.pts || 0} pts</span> · ${p.stats.reb || 0} reb · ${p.stats.ast || 0} ast
+                    </div>
+                  `
+                    )
+                    .join('')}
+                </div>
               </div>
 
               <!-- Home Side -->
               <div>
                 <div style="background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.3); border-radius: 8px; padding: 12px; margin-bottom: 12px;">
-                  <div style="text-align: center; font-size: 32px; font-weight: 700; color: #22c55e; margin-bottom: 4px;">${lg.homeScore}</div>
+                  <div id="watchScoreHome" style="text-align: center; font-size: 32px; font-weight: 700; color: #22c55e; margin-bottom: 4px;">${lg.homeScore}</div>
                   <div style="text-align: center; font-size: 14px; font-weight: 600;">${homeTeam.name}</div>
                 </div>
                 <div style="font-size: 11px; color: #888; font-weight: 600; text-transform: uppercase; margin-bottom: 6px;">Leaders</div>
-                ${homeLeaders.map(p => `
-                  <div style="font-size: 12px; padding: 4px; color: #ccc; border-bottom: 1px solid #333;">
-                    ${p.firstName} ${p.lastName}: <span style="color: #22c55e; font-weight: 600;">${p.stats.pts || 0} pts</span> · ${p.stats.reb || 0} reb · ${p.stats.ast || 0} ast
-                  </div>
-                `).join('')}
+                <div id="watchLeadersHome">
+                  ${homeLeaders
+                    .map(
+                      p => `
+                    <div style="font-size: 12px; padding: 4px; color: #ccc; border-bottom: 1px solid #333;">
+                      ${p.firstName} ${p.lastName}: <span style="color: #22c55e; font-weight: 600;">${p.stats.pts || 0} pts</span> · ${p.stats.reb || 0} reb · ${p.stats.ast || 0} ast
+                    </div>
+                  `
+                    )
+                    .join('')}
+                </div>
               </div>
             </div>
 
             <!-- Game Status -->
-            <div style="padding: 12px 20px; background: rgba(0,0,0,0.3); text-align: center; font-size: 13px; font-weight: 600;">
-              ${lg.isFinal ? '<span style="color: #ef4444;">FINAL</span>' : `<span style="color: #eab308;">Q${lg.quarter} · ${formatClockTime(lg.clock)}</span>`}
+            <div id="watchClock" style="padding: 12px 20px; background: rgba(0,0,0,0.3); text-align: center; font-size: 13px; font-weight: 600; color: #eab308;">
+              Q${lg.quarter} · ${formatClockTime(lg.clock)}
             </div>
 
             <!-- Controls -->
-            <div style="display: flex; gap: 8px; padding: 12px 20px; border-bottom: 1px solid #333;">
-              ${!lg.isFinal ? `
-                <button id="watchPlayPauseBtn" style="flex: 1; padding: 8px; background: ${lg.isPlaying ? '#ef4444' : '#22c55e'}; border: none; border-radius: 4px; cursor: pointer; color: ${lg.isPlaying ? '#fff' : '#000'}; font-weight: 600;">
-                  ${lg.isPlaying ? '⏸ Pause' : '▶ Play'}
+            <div style="display: flex; gap: 8px; padding: 12px 20px; border-bottom: 1px solid #333; flex-wrap: wrap; align-items: center;">
+              ${!lg.isFinal
+                ? `
+                <button id="watchPlayPauseBtn" style="flex: 1; min-width: 80px; padding: 8px; background: ${state.live.watch.isPlaying ? '#ef4444' : '#22c55e'}; border: none; border-radius: 4px; cursor: pointer; color: ${state.live.watch.isPlaying ? '#fff' : '#000'}; font-weight: 600;" data-action="watch-toggle">
+                  ${state.live.watch.isPlaying ? '⏸ Pause' : '▶ Play'}
                 </button>
-                <button id="watchSimToEndBtn" style="flex: 1; padding: 8px; background: #3b82f6; border: none; border-radius: 4px; cursor: pointer; color: #fff; font-weight: 600;">
+                <button id="watchSimToEndBtn" style="flex: 1; min-width: 80px; padding: 8px; background: #3b82f6; border: none; border-radius: 4px; cursor: pointer; color: #fff; font-weight: 600;" data-action="watch-sim-end">
                   ⏩ Sim to End
                 </button>
-              ` : ''}
+                <div style="flex: 1; min-width: 200px; display: flex; gap: 4px; align-items: center; padding: 4px;">
+                  <span style="color: #888; font-size: 11px; font-weight: 600;">SPEED:</span>
+                  ${[0.5, 1, 2, 4, 8].map(sp => `
+                    <button data-action="watch-speed" data-speed="${sp}" style="padding: 4px 8px; font-size: 11px; border: 1px solid ${state.live.watch.speed === sp ? '#60a5fa' : '#444'}; background: ${state.live.watch.speed === sp ? 'rgba(96,165,250,0.2)' : '#1a1a1a'}; border-radius: 3px; cursor: pointer; color: ${state.live.watch.speed === sp ? '#60a5fa' : '#888'}; font-weight: ${state.live.watch.speed === sp ? '600' : '400'};">
+                      ${sp}x
+                    </button>
+                  `).join('')}
+                </div>
+              `
+                : ''
+              }
             </div>
 
             <!-- Play-by-Play -->
@@ -5723,24 +5959,44 @@
             if (lg) {
               state.ui.liveGameOpen = true;
               state.ui.liveGame = lg;
+              
+              // Initialize watch controller
+              state.live.watch.gameId = gameId;
+              state.live.watch.isOpen = true;
+              state.live.watch.isPlaying = false;
+              state.live.watch.speed = 1;
+              state.live.watch.possessionsPerTick = 1;
+              state.live.watch.timerId = null;
+              
               render();
             }
           });
         });
       }
 
-      // WATCH GAME MODAL HANDLERS
+      // WATCH GAME MODAL HANDLERS (create modal once, update incrementally)
       if (state.ui.liveGameOpen && state.ui.liveGame) {
-        // Render modal
-        const modalRoot = document.createElement("div");
-        modalRoot.id = "watchGameModalRoot";
-        modalRoot.innerHTML = viewWatchGame();
-        document.body.appendChild(modalRoot);
+        state.live.watch.isOpen = true;
+        state.live.watch.gameId = state.ui.liveGame.gameId;
 
-        // Exit button
+        // Create modal container if not exists
+        let modalRoot = document.getElementById("watchGameModalRoot");
+        if (!modalRoot) {
+          modalRoot = document.createElement("div");
+          modalRoot.id = "watchGameModalRoot";
+          document.body.appendChild(modalRoot);
+        }
+        
+        // Render modal HTML (only once or when game changes)
+        modalRoot.innerHTML = viewWatchGame();
+        updateWatchGameUI();
+
+        // EXIT BUTTON
         const exitBtn = document.getElementById("watchExitBtn");
         if (exitBtn) {
           exitBtn.addEventListener("click", async () => {
+            stopWatchLoop();
+            
             // Save game result to schedule
             const lg = state.ui.liveGame;
             const schedule = state.league.schedule;
@@ -5806,70 +6062,74 @@
 
             state.ui.liveGameOpen = false;
             state.ui.liveGame = null;
+            state.live.watch.isOpen = false;
             await saveCurrentLeague();
             render();
             showBanner("success", "✓ Game saved");
           });
         }
-
-        // Play/Pause button
-        const playPauseBtn = document.getElementById("watchPlayPauseBtn");
-        if (playPauseBtn) {
-          playPauseBtn.addEventListener("click", () => {
-            state.ui.liveGame.isPlaying = !state.ui.liveGame.isPlaying;
-            
-            if (state.ui.liveGame.isPlaying) {
-              // Start auto-play
-              const playInterval = setInterval(() => {
-                if (!state.ui.liveGame || !state.ui.liveGame.isPlaying) {
-                  clearInterval(playInterval);
-                  render();
-                  return;
-                }
-                
-                playNextPossession(state.ui.liveGame);
-                render();
-                
-                // Update modal only
-                const modalRoot = document.getElementById("watchGameModalRoot");
-                if (modalRoot) {
-                  const watchPBPFeed = document.getElementById("watchPBPFeed");
-                  if (watchPBPFeed) {
-                    watchPBPFeed.innerHTML = state.ui.liveGame.pbp.length === 0 ? `
-                      <div style="text-align: center; color: #888; font-size: 13px; padding: 40px 0;">
-                        Game starting...
-                      </div>
-                    ` : state.ui.liveGame.pbp.map(ev => `
-                      <div style="padding: 6px 0; border-bottom: 1px solid #333; font-size: 12px;">
-                        <span style="color: #888; font-weight: 600;">Q${ev.q} ${ev.t}</span><br/>
-                        <span style="color: #ccc;">${ev.text}</span>
-                      </div>
-                    `).reverse().join('');
-                    watchPBPFeed.scrollTop = watchPBPFeed.scrollHeight;
-                  }
-                }
-              }, 200); // Update every 200ms
-            } else {
-              render();
-            }
-          });
-        }
-
-        // Sim to End button
-        const simToEndBtn = document.getElementById("watchSimToEndBtn");
-        if (simToEndBtn) {
-          simToEndBtn.addEventListener("click", () => {
-            const lg = state.ui.liveGame;
-            while (!lg.isFinal) {
-              playNextPossession(lg);
-            }
-            render();
-          });
-        }
       } else {
-        // Remove modal if it's open
+        // Clean up: stop timer and remove modal
+        if (state.live.watch.isOpen) {
+          stopWatchLoop();
+          state.live.watch.isOpen = false;
+        }
         const modalRoot = document.getElementById("watchGameModalRoot");
         if (modalRoot) modalRoot.remove();
+      }
+      
+      // EVENT DELEGATION: Use bubbling for all watch controls
+      // Attach once at document level in a separate handler setup
+      if (!window._watchHandlersSetup) {
+        window._watchHandlersSetup = true;
+        
+        document.addEventListener("click", (e) => {
+          // Play/Pause toggle
+          if (e.target.closest('[data-action="watch-toggle"]')) {
+            if (state.live.watch.isPlaying) {
+              stopWatchLoop();
+            } else {
+              startWatchLoop();
+            }
+            const modal = document.getElementById("watchGameModalRoot");
+            if (modal) {
+              updateWatchControls();
+            }
+          }
+          
+          // Speed control
+          if (e.target.closest('[data-action="watch-speed"]')) {
+            const btn = e.target.closest('[data-action="watch-speed"]');
+            const newSpeed = parseFloat(btn.dataset.speed);
+            state.live.watch.speed = newSpeed;
+            state.live.watch.possessionsPerTick = Math.max(1, Math.round(newSpeed));
+            
+            // Restart loop with new speed if playing
+            if (state.live.watch.isPlaying) {
+              stopWatchLoop();
+              startWatchLoop();
+            }
+            
+            // Re-render modal to update speed buttons
+            const modal = document.getElementById("watchGameModalRoot");
+            if (modal) {
+              modal.innerHTML = viewWatchGame();
+              updateWatchGameUI();
+            }
+          }
+          
+          // Sim to End button
+          if (e.target.closest('[data-action="watch-sim-end"]')) {
+            const lg = state.ui.liveGame;
+            if (lg) {
+              stopWatchLoop();
+              while (!lg.isFinal) {
+                playNextPossession(lg);
+              }
+              updateWatchGameUI();
+            }
+          }
+        });
       }
     }
 
