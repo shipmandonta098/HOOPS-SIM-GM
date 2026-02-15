@@ -3620,21 +3620,43 @@
     }
 
     /**
-     * Complete a game quickly without DOM updates
-     * Used when user clicks "Finish & Save" to simulate remaining possessions
+     * Complete a game quickly with realistic pacing
+     * Simulates remaining possessions with proper clock management
+     * NO DOM updates, NO speed multipliers
      */
     function completeGameFast(liveGame) {
-      const maxIterations = 50000;
-      let iterations = 0;
+      const MAX_TOTAL_POSSESSIONS = 600;
+      const MAX_TOTAL_QUARTERS = 10; // Q1-Q4 + up to 6 OTs
+      
+      let totalPossessions = 0;
 
-      while (!liveGame.isFinal && iterations < maxIterations) {
+      // Fast-sim loop: simulate possessions until game is final
+      while (!liveGame.isFinal && totalPossessions < MAX_TOTAL_POSSESSIONS) {
+        // Safety: prevent infinite quarter advances
+        if (liveGame.quarter > MAX_TOTAL_QUARTERS) {
+          console.warn("[completeGameFast] Max quarters exceeded, forcing final");
+          liveGame.isFinal = true;
+          break;
+        }
+
+        // Execute one possession (includes clock drain and quarter management)
         playNextPossession(liveGame);
-        iterations++;
+        totalPossessions++;
       }
 
-      if (iterations >= maxIterations) {
-        console.warn("[completeGameFast] Max iterations reached");
+      // Calibration guardrails: detect unrealistic scores
+      const totalPoints = liveGame.homeScore + liveGame.awayScore;
+      if (totalPoints > 320 || totalPoints < 120) {
+        console.warn(`[completeGameFast] Unrealistic score detected: ${liveGame.awayScore}-${liveGame.homeScore} (total: ${totalPoints})`, {
+          totalPossessions,
+          finalQuarter: liveGame.quarter,
+          finalClock: liveGame.clock,
+          homeStats: Object.values(liveGame.homeStats).reduce((sum, s) => sum + (s.pts || 0), 0),
+          awayStats: Object.values(liveGame.awayStats).reduce((sum, s) => sum + (s.pts || 0), 0)
+        });
       }
+
+      console.log(`[completeGameFast] Completed: ${liveGame.awayTeam} ${liveGame.awayScore} – ${liveGame.homeTeam} ${liveGame.homeScore} (${totalPossessions} possessions, final quarter: ${liveGame.quarter})`);
     }
 
     /**
