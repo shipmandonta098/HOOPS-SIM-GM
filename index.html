@@ -4852,9 +4852,6 @@
      * Simulate up to 7 days
      */
     async function simulateWeek() {
-      if (state.simulating) return;
-      state.simulating = true;
-
       const startDay = state.league.meta.day;
       const maxDays = Math.min(7, state.league.schedule.maxDays - startDay + 1);
 
@@ -4869,7 +4866,6 @@
       }
 
       await saveCurrentLeague();
-      state.simulating = false;
       render();
       showBanner("success", `✓ Simulated week (days ${startDay}-${state.league.meta.day - 1})`);
     }
@@ -4878,9 +4874,6 @@
      * Simulate up to 30 days
      */
     async function simulateMonth() {
-      if (state.simulating) return;
-      state.simulating = true;
-
       const startDay = state.league.meta.day;
       const maxDays = Math.min(30, state.league.schedule.maxDays - startDay + 1);
 
@@ -4895,7 +4888,6 @@
       }
 
       await saveCurrentLeague();
-      state.simulating = false;
       render();
       showBanner("success", `✓ Simulated month (days ${startDay}-${state.league.meta.day - 1})`);
     }
@@ -4904,9 +4896,6 @@
      * Simulate entire season
      */
     async function simulateSeason() {
-      if (state.simulating) return;
-      state.simulating = true;
-
       const { meta, schedule } = state.league;
       const startSeason = meta.season;
       let daysSimmed = 0;
@@ -4933,7 +4922,6 @@
       }
 
       await saveCurrentLeague();
-      state.simulating = false;
       render();
       showBanner("success", `✓ Simulated season (${daysSimmed} days)`);
     }
