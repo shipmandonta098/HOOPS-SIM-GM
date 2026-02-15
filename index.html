@@ -3710,11 +3710,11 @@
     }
 
     /**
-     * TEMP HELPER: Run N fast simulation games between two random teams and
-     * log average team totals for REB/AST/STL/BLK/TOV. Runs in-browser via console.
-     * Usage (in browser console): simulateValidation(10)
+     * TEMP HELPER: Run N fast simulation games and validate stat ranges.
+     * Logs per-team averages against target ranges.
+     * Usage (in browser console): simulateValidation(14)
      */
-    function simulateValidation(numGames = 10) {
+    function simulateValidation(numGames = 14) {
       if (!state || !state.league || !state.league.teams || state.league.teams.length < 2) {
         console.warn('League not initialized or not enough teams');
         return null;
@@ -3722,36 +3722,54 @@
 
       const originalLeague = JSON.parse(JSON.stringify(state.league));
       const cloneLeague = JSON.parse(JSON.stringify(state.league));
-      state.league = cloneLeague; // run sims on clone to avoid mutating real save
+      state.league = cloneLeague;
 
-      // pick two distinct teams
+      // Pick two teams
       const teams = state.league.teams.slice();
       const tA = teams[randInt(0, teams.length - 1)];
       let tB = teams[randInt(0, teams.length - 1)];
       while (tB.id === tA.id) tB = teams[randInt(0, teams.length - 1)];
 
       const accum = {
-        [tA.id]: { reb: 0, ast: 0, stl: 0, blk: 0, tov: 0 },
-        [tB.id]: { reb: 0, ast: 0, stl: 0, blk: 0, tov: 0 }
+        [tA.id]: { pts: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0 },
+        [tB.id]: { pts: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0 }
       };
 
       for (let i = 0; i < numGames; i++) {
-        // reset per-player per-game stats container
-        state.league.players.forEach(p => { p.stats = { gp: 0, min: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 }; });
+        // Reset per-game stats for this iteration
+        state.league.players.forEach(p => { 
+          p.stats = { gp: 0, min: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 }; 
+        });
 
         simulateOneGame(tA, tB);
 
-        // aggregate team totals from player.stats
+        // Aggregate team totals
         [tA.id, tB.id].forEach(tid => {
           const roster = state.league.players.filter(p => p.teamId === tid);
           const totals = roster.reduce((s, p) => {
-            s.reb += n0(p.stats.reb || 0);
-            s.ast += n0(p.stats.ast || 0);
-            s.stl += n0(p.stats.stl || 0);
-            s.blk += n0(p.stats.blk || 0);
-            s.tov += n0(p.stats.tov || 0);
+            const st = p.stats || {};
+            s.pts += n0(st.pts || 0);
+            s.fga += n0(st.fga || 0);
+            s.fgm += n0(st.fgm || 0);
+            s.tpa += n0(st.tpa || 0);
+            s.tpm += n0(st.tpm || 0);
+            s.fta += n0(st.fta || 0);
+            s.ftm += n0(st.ftm || 0);
+            s.reb += n0(st.reb || 0);
+            s.ast += n0(st.ast || 0);
+            s.stl += n0(st.stl || 0);
+            s.blk += n0(st.blk || 0);
+            s.tov += n0(st.tov || 0);
             return s;
-          }, { reb: 0, ast: 0, stl: 0, blk: 0, tov: 0 });
+          }, { pts: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0 });
+          
+          accum[tid].pts += totals.pts;
+          accum[tid].fga += totals.fga;
+          accum[tid].fgm += totals.fgm;
+          accum[tid].tpa += totals.tpa;
+          accum[tid].tpm += totals.tpm;
+          accum[tid].fta += totals.fta;
+          accum[tid].ftm += totals.ftm;
           accum[tid].reb += totals.reb;
           accum[tid].ast += totals.ast;
           accum[tid].stl += totals.stl;
@@ -3760,24 +3778,39 @@
         });
       }
 
-      // compute averages
+      // Compute per-game averages
       const results = {};
       [tA.id, tB.id].forEach(tid => {
+        const a = accum[tid];
+        const fgPct = a.fga > 0 ? ((a.fgm / a.fga) * 100).toFixed(1) : '0.0';
+        const tpPct = a.tpa > 0 ? ((a.tpm / a.tpa) * 100).toFixed(1) : '0.0';
+        const ftPct = a.fta > 0 ? ((a.ftm / a.fta) * 100).toFixed(1) : '0.0';
+        
         results[tid] = {
-          team: state.league.teams.find(t => t.id === tid).name,
-          avgREB: +(accum[tid].reb / numGames).toFixed(2),
-          avgAST: +(accum[tid].ast / numGames).toFixed(2),
-          avgSTL: +(accum[tid].stl / numGames).toFixed(2),
-          avgBLK: +(accum[tid].blk / numGames).toFixed(2),
-          avgTOV: +(accum[tid].tov / numGames).toFixed(2)
+          team: state.league.teams.find(t => t.id === tid)?.name || '?',
+          PPG: +(a.pts / numGames).toFixed(1),
+          FGA: +(a.fga / numGames).toFixed(1),
+          'FG%': fgPct,
+          '3PA': +(a.tpa / numGames).toFixed(1),
+          '3P%': tpPct,
+          FTA: +(a.fta / numGames).toFixed(1),
+          'FT%': ftPct,
+          RPG: +(a.reb / numGames).toFixed(1),
+          APG: +(a.ast / numGames).toFixed(1),
+          SPG: +(a.stl / numGames).toFixed(1),
+          BPG: +(a.blk / numGames).toFixed(1),
+          TOPG: +(a.tov / numGames).toFixed(1)
         };
       });
 
-      console.log('Validation results (averages per game over', numGames, 'games):');
-      console.table(Object.values(results).map(r => ({ Team: r.team, REB: r.avgREB, AST: r.avgAST, STL: r.avgSTL, BLK: r.avgBLK, TOV: r.avgTOV })));
-      console.log('Target ranges: REB 40–55, AST 20–30, STL 6–9, BLK 4–7, TOV 11–16');
-
-      // restore original league state
+      const table = Object.values(results).map(r => ({ ...r }));
+      console.log(`\n✓ Fixed Stat Validation Results (${numGames} games)\n`);
+      console.table(table);
+      
+      console.log('🎯 Target Ranges (per team per game):');
+      console.log('  PPG: 95–125 | FGA: 75–95 | FTA: 15–30 | RPG: 40–55 | APG: 20–32 | SPG: 6–10 | BPG: 3–7 | TOPG: 11–17');
+      
+      // Restore original state
       state.league = originalLeague;
       return results;
     }
