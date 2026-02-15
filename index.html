@@ -2440,6 +2440,16 @@
             mood: randInt(40, 90),
             stamina: randInt(70, 100),
             stats: { gp: 0, min: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 },
+          splits: {
+            overall: { gp: 0, min: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 },
+            home: { gp: 0, min: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 },
+            away: { gp: 0, min: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 }
+          },
+            splits: {
+              overall: { gp: 0, min: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 },
+              home: { gp: 0, min: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 },
+              away: { gp: 0, min: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 }
+            },
             // Bio fields
             heightIn: phys.heightIn,
             weightLb: phys.weightLb,
@@ -2616,6 +2626,12 @@
       // Assign conferences/divisions and generate schedule
       assignConferencesAndDivisions(league);
       league.schedule = generateSchedule(league);
+      
+      // Initialize lineups tracking per team
+      league.lineups = {};
+      teams.forEach(team => {
+        league.lineups[team.id] = {};
+      });
 
       return league;
     }
@@ -3624,22 +3640,31 @@
           if (!player.stats) {
             player.stats = { gp: 0, min: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 };
           }
+          if (!player.splits) {
+            player.splits = {
+              overall: { gp: 0, min: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 },
+              home: { gp: 0, min: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 },
+              away: { gp: 0, min: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 }
+            };
+          }
           
           const pStats = gameStats[playerId];
+          const statFields = ['min', 'pts', 'reb', 'ast', 'stl', 'blk', 'tov', 'fga', 'fgm', 'tpa', 'tpm', 'fta', 'ftm'];
+          
+          // Update overall stats
           player.stats.gp += 1;
-          player.stats.pts += pStats.pts || 0;
-          player.stats.reb += pStats.reb || 0;
-          player.stats.ast += pStats.ast || 0;
-          player.stats.stl += pStats.stl || 0;
-          player.stats.blk += pStats.blk || 0;
-          player.stats.tov += pStats.tov || 0;
-          player.stats.fga += pStats.fga || 0;
-          player.stats.fgm += pStats.fgm || 0;
-          player.stats.tpa += pStats.tpa || 0;
-          player.stats.tpm += pStats.tpm || 0;
-          player.stats.fta += pStats.fta || 0;
-          player.stats.ftm += pStats.ftm || 0;
-          player.stats.min += pStats.min || 0;
+          statFields.forEach(field => {
+            player.stats[field] += pStats[field] || 0;
+          });
+          
+          // Update splits (overall + home/away)
+          const splitKey = isHome ? 'home' : 'away';
+          player.splits.overall.gp += 1;
+          player.splits[splitKey].gp += 1;
+          statFields.forEach(field => {
+            player.splits.overall[field] += pStats[field] || 0;
+            player.splits[splitKey][field] += pStats[field] || 0;
+          });
         }
       }
 
@@ -6183,6 +6208,70 @@
           </div>
         </div>
       `;
+    }
+
+    // Advanced stats computations
+    function computeEFG(fgm, fga, tpm) {
+      if (fga <= 0) return 0;
+      return ((fgm + 0.5 * tpm) / fga);
+    }
+    
+    function computeTS(pts, fga, fta) {
+      const denom = 2 * (fga + 0.44 * fta);
+      if (denom <= 0) return 0;
+      return pts / denom;
+    }
+    
+    function computeASTTOV(ast, tov) {
+      if (tov <= 0) return tov === 0 ? 0 : ast / tov;
+      return ast / tov;
+    }
+    
+    // Aggregate lineups from game stats
+    function aggregateLineupsFromGame(game, teamsData) {
+      if (!game.box || !game.box.homeStats || !game.box.awayStats) return;
+      if (!state.league.lineups) state.league.lineups = {};
+      
+      const homeTeam = teamsData.find(t => t.id === game.homeTid);
+      const awayTeam = teamsData.find(t => t.id === game.awayTid);
+      if (!homeTeam || !awayTeam) return;
+      
+      // Get players with stats and sort by minutes (descending)
+      const homeStatsEntries = Object.entries(game.box.homeStats).sort((a, b) => (b[1].min || 0) - (a[1].min || 0));
+      const awayStatsEntries = Object.entries(game.box.awayStats).sort((a, b) => (b[1].min || 0) - (a[1].min || 0));
+      
+      // Take top 5 (or however many played)
+      const homeLineup = homeStatsEntries.slice(0, 5).map(e => e[0]).sort().join('-');
+      const awayLineup = awayStatsEntries.slice(0, 5).map(e => e[0]).sort().join('-');
+      
+      if (!state.league.lineups[game.homeTid]) state.league.lineups[game.homeTid] = {};
+      if (!state.league.lineups[game.awayTid]) state.league.lineups[game.awayTid] = {};
+      
+      // Aggregate home lineup
+      if (homeLineup) {
+        if (!state.league.lineups[game.homeTid][homeLineup]) {
+          state.league.lineups[game.homeTid][homeLineup] = { poss: 0, mins: 0, ptsFor: 0, ptsAgainst: 0 };
+        }
+        const lineup = state.league.lineups[game.homeTid][homeLineup];
+        const totalMins = homeStatsEntries.slice(0, 5).reduce((sum, e) => sum + (e[1].min || 0), 0);
+        lineup.mins += totalMins || 0;
+        lineup.poss += 50; // Rough estimate: ~50 possessions per lineup per game
+        lineup.ptsFor += game.homeScore || 0;
+        lineup.ptsAgainst += game.awayScore || 0;
+      }
+      
+      // Aggregate away lineup
+      if (awayLineup) {
+        if (!state.league.lineups[game.awayTid][awayLineup]) {
+          state.league.lineups[game.awayTid][awayLineup] = { poss: 0, mins: 0, ptsFor: 0, ptsAgainst: 0 };
+        }
+        const lineup = state.league.lineups[game.awayTid][awayLineup];
+        const totalMins = awayStatsEntries.slice(0, 5).reduce((sum, e) => sum + (e[1].min || 0), 0);
+        lineup.mins += totalMins || 0;
+        lineup.poss += 50; // Rough estimate
+        lineup.ptsFor += game.awayScore || 0;
+        lineup.ptsAgainst += game.homeScore || 0;
+      }
     }
 
     function viewStats() {
