@@ -3538,7 +3538,17 @@
         awayStats: {},
         pbp: [],
         isFinal: false,
-        isPlaying: false
+        isPlaying: false,
+        meta: {
+          currentRunTeam: null,
+          currentRunPts: 0,
+          largestRunHome: 0,
+          largestRunAway: 0,
+          leadChanges: 0,
+          timesTied: 0,
+          lastLeader: "tie",
+          runMilestonesPassed: {} // Track which milestones have been announced
+        }
       };
     }
 
@@ -3623,6 +3633,7 @@
           playerStats.pts += ftMakes;
           if (offenseTid === liveGame.homeTid) liveGame.homeScore += ftMakes;
           else liveGame.awayScore += ftMakes;
+          applyScoringMeta(liveGame, offenseTid, ftMakes);
           liveGame.possession = defenseTid;
           break;
         }
@@ -3638,6 +3649,7 @@
             playerStats.pts += 3;
             if (offenseTid === liveGame.homeTid) liveGame.homeScore += 3;
             else liveGame.awayScore += 3;
+            applyScoringMeta(liveGame, offenseTid, 3);
             
             const make3pts = [
               `${scorer.firstName} nails a three!`,
@@ -3672,6 +3684,7 @@
             playerStats.pts += 2;
             if (offenseTid === liveGame.homeTid) liveGame.homeScore += 2;
             else liveGame.awayScore += 2;
+            applyScoringMeta(liveGame, offenseTid, 2);
             
             const makeMid = [
               `${scorer.firstName} hits a pull-up jumper.`,
@@ -3704,6 +3717,7 @@
             playerStats.pts += 2;
             if (offenseTid === liveGame.homeTid) liveGame.homeScore += 2;
             else liveGame.awayScore += 2;
+            applyScoringMeta(liveGame, offenseTid, 2);
             
             const driveTexts = [
               `${scorer.firstName} drives and finishes at the rim.`,
@@ -3761,6 +3775,7 @@
             passerStats.ast += 1;
             if (offenseTid === liveGame.homeTid) liveGame.homeScore += 2;
             else liveGame.awayScore += 2;
+            applyScoringMeta(liveGame, offenseTid, 2);
             
             const assistTexts = [
               `${passer.firstName} finds ${recipient.firstName} for the bucket. (Assist: ${passer.firstName})`,
@@ -3817,6 +3832,68 @@
       const mins = Math.floor(Math.abs(seconds) / 60);
       const secs = Math.abs(seconds) % 60;
       return `${mins}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    /**
+     * Apply scoring meta tracking (runs, lead changes, times tied)
+     */
+    function applyScoringMeta(liveGame, scoringTeam, pointsScored) {
+      const meta = liveGame.meta;
+      
+      // Track runs: if same team scores, extend run; else start new run
+      if (meta.currentRunTeam === scoringTeam) {
+        meta.currentRunPts += pointsScored;
+      } else {
+        // Save previous run as largest if applicable
+        if (meta.currentRunTeam === liveGame.homeTid) {
+          meta.largestRunHome = Math.max(meta.largestRunHome, meta.currentRunPts);
+        } else if (meta.currentRunTeam === liveGame.awayTid) {
+          meta.largestRunAway = Math.max(meta.largestRunAway, meta.currentRunPts);
+        }
+        
+        // Start new run
+        meta.currentRunTeam = scoringTeam;
+        meta.currentRunPts = pointsScored;
+      }
+      
+      // Announce run milestones (8, 10, 12+)
+      const milestones = [8, 10, 12, 15, 18, 20];
+      for (const ms of milestones) {
+        if (meta.currentRunPts === ms && !meta.runMilestonesPassed[meta.currentRunTeam + '_' + ms]) {
+          meta.runMilestonesPassed[meta.currentRunTeam + '_' + ms] = true;
+          const runTeam = meta.currentRunTeam === liveGame.homeTid ? 'HOME' : 'AWAY';
+          liveGame.pbp.push({
+            q: liveGame.quarter,
+            t: formatClockTime(liveGame.clock),
+            text: `${runTeam} is on a ${meta.currentRunPts}–0 run!`
+          });
+        }
+      }
+      
+      // Track lead changes and ties (after score is updated)
+      const homeScore = liveGame.homeScore;
+      const awayScore = liveGame.awayScore;
+      
+      let leader;
+      if (homeScore > awayScore) {
+        leader = "home";
+      } else if (awayScore > homeScore) {
+        leader = "away";
+      } else {
+        leader = "tie";
+      }
+      
+      // Times tied: went from non-tie to tie
+      if (leader === "tie" && meta.lastLeader !== "tie") {
+        meta.timesTied += 1;
+      }
+      
+      // Lead changes: flipped from home to away or vice versa (not counting ties)
+      if (leader !== "tie" && meta.lastLeader !== "tie" && leader !== meta.lastLeader) {
+        meta.leadChanges += 1;
+      }
+      
+      meta.lastLeader = leader;
     }
 
     /**
@@ -4196,6 +4273,64 @@
       return boxHTML;
     }
 
+    function renderWatchGameFlow() {
+      const lg = state.ui.liveGame;
+      if (!lg || !lg.meta) return '';
+
+      const homeTeam = teamById(lg.homeTid);
+      const awayTeam = teamById(lg.awayTid);
+      
+      const meta = lg.meta;
+      
+      let currentRunDisplay = '—';
+      if (meta.currentRunTeam) {
+        const runTeam = meta.currentRunTeam === lg.homeTid ? homeTeam.abbrev : awayTeam.abbrev;
+        currentRunDisplay = `${runTeam} ${meta.currentRunPts}–0`;
+      }
+      
+      let largestRunsDisplay = '—';
+      if (meta.largestRunHome > 0 || meta.largestRunAway > 0) {
+        const runs = [];
+        if (meta.largestRunHome > 0) runs.push(`${homeTeam.abbrev} ${meta.largestRunHome}–0`);
+        if (meta.largestRunAway > 0) runs.push(`${awayTeam.abbrev} ${meta.largestRunAway}–0`);
+        largestRunsDisplay = runs.join(' • ');
+      }
+
+      return `
+        <div style="background: rgba(0,0,0,0.3); border: 1px solid #333; border-radius: 6px; padding: 16px; margin-bottom: 16px;">
+          <div style="font-size: 12px; font-weight: 700; color: #60a5fa; text-transform: uppercase; margin-bottom: 12px;">Game Flow</div>
+          
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 14px;">
+            <!-- Left column -->
+            <div>
+              <div style="font-size: 10px; color: #888; text-transform: uppercase; margin-bottom: 6px; font-weight: 600;">Current Run</div>
+              <div style="font-size: 16px; color: #ccc; font-weight: 600;">${currentRunDisplay}</div>
+            </div>
+            
+            <!-- Right column -->
+            <div>
+              <div style="font-size: 10px; color: #888; text-transform: uppercase; margin-bottom: 6px; font-weight: 600;">Largest Runs</div>
+              <div style="font-size: 14px; color: #ccc;">${largestRunsDisplay}</div>
+            </div>
+          </div>
+          
+          <div style="border-top: 1px solid #444; padding-top: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+            <!-- Left column -->
+            <div>
+              <div style="font-size: 10px; color: #888; text-transform: uppercase; margin-bottom: 4px; font-weight: 600;">Lead Changes</div>
+              <div style="font-size: 20px; color: #22c55e; font-weight: 700;">${meta.leadChanges}</div>
+            </div>
+            
+            <!-- Right column -->
+            <div>
+              <div style="font-size: 10px; color: #888; text-transform: uppercase; margin-bottom: 4px; font-weight: 600;">Times Tied</div>
+              <div style="font-size: 20px; color: #eab308; font-weight: 700;">${meta.timesTied}</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
     function renderWatchCompare() {
       const lg = state.ui.liveGame;
       if (!lg) return '';
@@ -4232,6 +4367,8 @@
       };
 
       const compareHTML = `
+        ${renderWatchGameFlow()}
+        
         <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px;">
           ${stats.map(stat => {
             const awayVal = getValue(awayTotal, stat);
@@ -6351,6 +6488,16 @@
                 game.pbp = lg.pbp.slice(-250);
               } else {
                 game.pbp = lg.pbp;
+              }
+
+              // Store game flow meta summary
+              if (lg.meta) {
+                game.metaSummary = {
+                  leadChanges: lg.meta.leadChanges,
+                  timesTied: lg.meta.timesTied,
+                  largestRunHome: lg.meta.largestRunHome,
+                  largestRunAway: lg.meta.largestRunAway
+                };
               }
 
               // Update team records
