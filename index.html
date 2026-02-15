@@ -3495,10 +3495,40 @@
         const ast = Math.round( randInt(0, Math.max(1, 8)) * ( (w.share * (0.5 + w.astFactor)) / Math.max(0.0001, totalAst) ) );
         const reb = Math.round( randInt(0, Math.max(1, 10)) * ( (w.share * (0.5 + w.rebFactor)) / Math.max(0.0001, totalReb) ) );
 
-        p.stats.gp += 1;
-        p.stats.pts += clamp(pts, 0, 60);
-        p.stats.reb += clamp(reb, 0, 30);
-        p.stats.ast += clamp(ast, 0, 20);
+        // Defensive stats: steals, blocks, turnovers
+        const defenseRating = (p.ratings?.perD || p.ovr) / 100;
+        const stl = Math.round(w.share * (0.3 + defenseRating * 0.2) * randInt(2, 5));
+        const blk = Math.round(w.share * ((p.pos === 'C' || p.pos === 'PF' ? 0.5 : 0.1) + defenseRating * 0.1) * randInt(1, 3));
+        const tov = Math.round(w.share * randInt(1, 4));
+
+        // FG attempts/makes proportional to points (assuming ~46% FG)
+        const fga = Math.round(pts / 0.46);
+        const fgm = Math.round(pts * 0.46);
+        
+        // 3-pointers (assume ~25% of FGA are 3s, 34% conversion)
+        const tpa = Math.round(fga * 0.25);
+        const tpm = Math.round(tpa * 0.34);
+        
+        // FTs (assume remaining points come from FTs at ~77% conversion)
+        const ftmForBal = pts - (fgm * 2) + (Math.round(tpm) * 3);
+        const fta = Math.round(ftmForBal / 0.77);
+        const ftm = Math.round(fta * 0.77);
+
+        // Update stats (ensure all fields exist)
+        p.stats.gp = (p.stats.gp || 0) + 1;
+        p.stats.min = (p.stats.min || 0) + w.mins;
+        p.stats.pts = (p.stats.pts || 0) + clamp(pts, 0, 60);
+        p.stats.reb = (p.stats.reb || 0) + clamp(reb, 0, 30);
+        p.stats.ast = (p.stats.ast || 0) + clamp(ast, 0, 20);
+        p.stats.stl = (p.stats.stl || 0) + clamp(stl, 0, 8);
+        p.stats.blk = (p.stats.blk || 0) + clamp(blk, 0, 4);
+        p.stats.tov = (p.stats.tov || 0) + clamp(tov, 0, 6);
+        p.stats.fga = (p.stats.fga || 0) + fga;
+        p.stats.fgm = (p.stats.fgm || 0) + fgm;
+        p.stats.tpa = (p.stats.tpa || 0) + tpa;
+        p.stats.tpm = (p.stats.tpm || 0) + tpm;
+        p.stats.fta = (p.stats.fta || 0) + fta;
+        p.stats.ftm = (p.stats.ftm || 0) + ftm;
 
         // Mood adjustment
         p.mood = clamp(p.mood + (won ? randInt(0,2) : -randInt(0,2)), 0, 100);
