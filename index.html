@@ -1352,7 +1352,7 @@
         tendencies.usage = 50;
       } else if (pos === "PF") {
         tendencies.shot3Freq = 20;
-        tendencies.shotMidFreq: 30;
+        tendencies.shotMidFreq = 30;
         tendencies.shotRimFreq = 40;
         tendencies.passFreq = 15;
         tendencies.driveFreq = 20;
@@ -4624,22 +4624,18 @@
       
       // STEP 1: Turnover check (rating + archetype driven)
       const bhRatings = ballHandler.ratings || {};
-      const defRatings = defender.ratings || {};
-      const bhMods = getArchetypeMods(ballHandler.archetype);
-      const defMods = getArchetypeMods(defender.archetype);
-
-      const ballSecurity = n0(((bhRatings.pas || 50) * 0.45 + (bhRatings.iq || 50) * 0.30 + (bhRatings.drb || 50) * 0.25) / 100);
-      const defPressure = n0(((defRatings.inD || 50) * 0.45 + (defRatings.perD || 50) * 0.30 + (defRatings.ath || 50) * 0.25) / 100);
-
-      let turnoverChance = 0.13 * (1 - ballSecurity) * bhMods.tovProbMult * defMods.stlWeightMult * (1 + defPressure * 0.4);
-      turnoverChance = Math.max(0.04, Math.min(0.30, turnoverChance));
+      const bhTend = ballHandler.tendencies || {};
+      const defenseTeamStyle = defenseTeam.style || {};
+      
+      // Use new helper for turnover probability based on ratings and tendencies
+      const turnoverChance = calculateTurnoverProbability(bhRatings.pas || 50, defenseTeam.style?.pressureDefense || 50, bhTend, defenseTeamStyle);
 
       if (Math.random() < turnoverChance) {
         bhStats.tov += 1;
 
-        // Determine if it's a steal and by whom (weight by defensive steal attributes)
-        const stealBase = 0.55 * n0((defender.ratings?.stl || 45) / 75) * defMods.stlWeightMult;
-        const isSteal = Math.random() < Math.min(0.95, Math.max(0.15, stealBase));
+        // Determine if turnover becomes a steal using helper
+        const defenseTeamStyle = defenseTeam.style || {};
+        const isSteal = Math.random() < calculateStealOnTurnoverProbability(defender.ratings?.stl || 50, defender.tendencies?.stealFreq || 50, defenseTeamStyle);
 
         if (isSteal) {
           // Pick a stealer from defense roster weighted by steal/int/ath and archetype
@@ -4672,13 +4668,9 @@
         return;
       }
       
-      // STEP 2: Decide shot type (87% of possessions result in shot attempt)
-      const rand = Math.random();
-      let shotType = '2pt';  // 2pt, '3pt', 'ft'
-      
-      if (rand < 0.23) shotType = '3pt';     // 23% threes
-      else if (rand < 0.28) shotType = 'ft'; // 5% direct FT
-      else shotType = '2pt';                  // 72% twos
+      // STEP 2: Decide shot type using team style and player tendencies
+      const offenseTeamStyle = offenseTeam.style || {};
+      const shotType = selectShotType(offenseTeamStyle, ballHandler.tendencies || {});
       
       // STEP 3: Shot attempt with block chance on 2-pointers
       const shooter = shotType === '2pt' ? ballHandler : offenseRoster[randInt(0, offenseRoster.length - 1)];
@@ -4687,25 +4679,11 @@
       }
       const shooterStats = liveGame[statsKey][shooter.id];
       
-      // Block chance on 2-pointers (rating + archetype + physicals)
-      if (shotType === '2pt') {
-        // Build weights for likely blockers from defense roster
-        const blkWeights = defenseRoster.map(p => {
-          const r = p.ratings || {};
-          const mods = getArchetypeMods(p.archetype);
-          const wingspan = n0(p.wingspanIn || 0);
-          const height = n0(p.heightIn || 0);
-          const physExt = 1 + Math.max(0, (wingspan - height) / 40);
-          return n0(( (r.blk || 30) * 0.6 + (r.ath || 40) * 0.25 + (r.inD || 40) * 0.15 ) * (mods.blkWeightMult || 1) * physExt);
-        });
-        const totalBlk = blkWeights.reduce((a,b)=>a+b,0) || 1;
-        // Estimate block probability relative to average blocking strength
-        const avgBlkStrength = totalBlk / blkWeights.length;
-        const defenderBlkStrength = blkWeights[defenseRoster.indexOf(defender)] || avgBlkStrength;
-        const baseBlock = 0.06;
-        const blockChance = Math.min(0.30, baseBlock * (defenderBlkStrength / Math.max(10, avgBlkStrength)) );
-
-        if (Math.random() < blockChance) {
+      // Block chance on 2-pointers and rim attempts using tendencies-driven calculation
+      if (shotType === 'rim' || shotType === '2pt') {
+        const blockProb = calculateBlockProbability(defender.ratings?.blk || 50, shooter.ratings?.[shotType === '3pt' ? 'tp' : 'mid'] || 50, defender.tendencies?.blockFreq || 50, shotType);
+        
+        if (Math.random() < blockProb) {
           // pick actual blocker weighted
           let pick = Math.random() * totalBlk;
           let bi = 0;
@@ -4722,23 +4700,27 @@
         }
       }
       
-      // STEP 4: Determine make/miss with realistic percentages
+      // STEP 4: Determine make/miss using rating-based probability
+      const ratingKey = shotType === '3pt' ? 'tp' : shotType === 'ft' ? 'ft' : 'mid';
+      const shooterRating = shooter.ratings?.[ratingKey] || 50;
+      const defenderRating = defender.ratings?.perD || 50;
+      
       let isMake = false;
-      const shooterRating = n0((shooter.ratings?.[shotType === '3pt' ? 'tp' : shotType === 'ft' ? 'ft' : 'mid'] || shooter.ovr) / 100) || 0.5;
-      const defenderDef = n0((defender.ratings?.perD || 50) / 100) || 0.5;
       
       if (shotType === '3pt') {
-        // 3P%: ~34% base
-        isMake = shooterRating * 0.80 + randInt(-12, 12) > defenderDef * 0.50 + randInt(-8, 8);
         shooterStats.tpa += 1;
+        isMake = Math.random() < calculateShotMakeProbability('3pt', shooterRating, defenderRating, shooter.archetype);
       } else if (shotType === 'ft') {
-        // FT%: ~77% base
-        isMake = Math.random() < (shooterRating * 0.90 + 0.10);
         shooterStats.fta += 1;
-      } else {
-        // 2P%: ~48% base
-        isMake = shooterRating * 0.85 + randInt(-10, 10) > defenderDef * 0.55 + randInt(-8, 8);
+        // FT make % based on rating
+        const ft_pct = 0.50 + n0((shooterRating - 50) / 200);
+        isMake = Math.random() < ft_pct;
+      } else if (shotType === 'rim') {
         shooterStats.fga += 1;
+        isMake = Math.random() < calculateShotMakeProbability('rim', shooterRating, defenderRating, shooter.archetype);
+      } else {
+        shooterStats.fga += 1;
+        isMake = Math.random() < calculateShotMakeProbability('mid', shooterRating, defenderRating, shooter.archetype);
       }
       
       // STEP 5: Track make/miss and score
@@ -4760,8 +4742,9 @@
         else liveGame.awayScore += pointsScored;
         applyScoringMeta(liveGame, offenseTid, pointsScored);
         
-        // STEP 6: Assist on made shots (60% chance)
-        if (Math.random() < 0.60 && shooter.id !== ballHandler.id) {
+        // STEP 6: Assist on made shots (weighted by assist tendency and passing rating)
+        const assistChance = Math.min(0.75, 0.35 + n0((ballHandler.ratings?.pas || 50) / 200) + n0((ballHandler.tendencies?.passFreq || 50) / 250));
+        if (Math.random() < assistChance && shooter.id !== ballHandler.id) {
           bhStats.ast += 1;
           const assist = `(Assist: ${ballHandler.firstName})`;
           const makeTexts = [
