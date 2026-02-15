@@ -1208,7 +1208,7 @@
      *   v11: Lineup tracking system (possession-level aggregation)
      *   v12: Team opponent stats tracking (oppPts, oppFGM/A, etc.)
      **********************/
-    const CURRENT_SCHEMA_VERSION = 12;
+    const CURRENT_SCHEMA_VERSION = 13;
     const inMemorySaves = [];
     const inMemoryLeagues = {};
 
@@ -1223,6 +1223,17 @@
     }
     function uuid() {
       return crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + "-" + randInt(1000, 9999);
+    }
+
+    // Safe math helpers to prevent NaN
+    function n0(x) { 
+      return Number.isFinite(x) ? x : 0; 
+    }
+    function safeDiv(a, b) { 
+      return b > 0 ? a / b : 0; 
+    }
+    function safePct(m, a) { 
+      return a > 0 ? (m / a * 100) : 0; 
     }
 
     // Bio generation data
@@ -2572,7 +2583,12 @@
           salary,
           mood: randInt(40, 90),
           stamina: randInt(70, 100),
-          stats: { gp: 0, pts: 0, reb: 0, ast: 0 },
+          stats: { gp: 0, min: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 },
+          splits: {
+            overall: { gp: 0, min: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 },
+            home: { gp: 0, min: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 },
+            away: { gp: 0, min: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 }
+          },
           // Bio fields
           heightIn: phys.heightIn,
           weightLb: phys.weightLb,
@@ -2990,6 +3006,48 @@
             v = 12;
             league.schemaVersion = 12;
             console.log("[Migration] ✓ v11 → v12 complete");
+          
+          } else if (v === 12) {
+            // v12 → v13: Ensure all player stats fields are initialized
+            console.log("[Migration] Applying v12 → v13: Initialize all player stats fields");
+            
+            league.players = league.players || [];
+            
+            const defaultStats = { gp: 0, min: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 };
+            
+            league.players.forEach(player => {
+              // Initialize stats if missing or incomplete
+              if (!player.stats) {
+                player.stats = { ...defaultStats };
+              } else {
+                // Ensure all fields exist
+                Object.keys(defaultStats).forEach(key => {
+                  if (!(key in player.stats)) {
+                    player.stats[key] = 0;
+                  }
+                });
+              }
+              
+              // Initialize splits if missing
+              if (!player.splits) {
+                player.splits = {};
+              }
+              ['overall', 'home', 'away'].forEach(splitKey => {
+                if (!player.splits[splitKey]) {
+                  player.splits[splitKey] = { ...defaultStats };
+                } else {
+                  Object.keys(defaultStats).forEach(key => {
+                    if (!(key in player.splits[splitKey])) {
+                      player.splits[splitKey][key] = 0;
+                    }
+                  });
+                }
+              });
+            });
+            
+            v = 13;
+            league.schemaVersion = 13;
+            console.log("[Migration] ✓ v12 → v13 complete");
           }
           
           else {
@@ -3835,6 +3893,12 @@
       const awayTotals = calculateBoxTotals(liveGame.awayStats);
       accumulateTeamSeasonStats(homeTeam, awayTeam, homeTotals, awayTotals);
 
+      // DEBUG: Log game stats to verify realistic ranges
+      console.log(`[GAME FINALIZED] ${homeTeam.name} (${liveGame.homeScore}) vs ${awayTeam.name} (${liveGame.awayScore})`);
+      console.log(`  Home Box: REB=${homeTotals.reb}, AST=${homeTotals.ast}, STL=${homeTotals.stl}, BLK=${homeTotals.blk}, TOV=${homeTotals.tov}`);
+      console.log(`  Away Box: REB=${awayTotals.reb}, AST=${awayTotals.ast}, STL=${awayTotals.stl}, BLK=${awayTotals.blk}, TOV=${awayTotals.tov}`);
+      console.log(`  Expected Ranges: REB 35-65, AST 10-35, STL 2-15, BLK 1-12, TOV 5-25`);
+
       return true;
     }
 
@@ -4045,253 +4109,220 @@
 
     /**
      * Play next possession in the game
+     * Tracks all 7 basketball events: points, rebounds, assists, steals, blocks, turnovers, fouls
      */
     function playNextPossession(liveGame) {
       if (liveGame.isFinal) return;
       
-      // Snapshot scores at start of possession for aggregation tracking
-      const homeScoreBefore = liveGame.homeScore;
-      const awayScoreBefore = liveGame.awayScore;
-      
       const offenseTid = liveGame.possession;
       const defenseTid = offenseTid === liveGame.homeTid ? liveGame.awayTid : liveGame.homeTid;
+      const isHome = offenseTid === liveGame.homeTid;
       
       const offenseTeam = teamById(offenseTid);
       const defenseTeam = teamById(defenseTid);
-      
-      // Get on-court rosters
       const offenseRoster = state.league.players.filter(p => p.teamId === offenseTid).sort((a,b) => b.ovr - a.ovr).slice(0, 5);
       const defenseRoster = state.league.players.filter(p => p.teamId === defenseTid).sort((a,b) => b.ovr - a.ovr).slice(0, 5);
       
-      if (offenseRoster.length === 0) return;
+      if (offenseRoster.length === 0 || defenseRoster.length === 0) return;
       
-      // Pick random offensive player
-      const scorer = offenseRoster[randInt(0, offenseRoster.length - 1)];
+      const ballHandler = offenseRoster[randInt(0, offenseRoster.length - 1)];
       const defender = defenseRoster[randInt(0, defenseRoster.length - 1)];
+      const statsKey = isHome ? 'homeStats' : 'awayStats';
       
       // Initialize player stats if needed
-      if (!liveGame[offenseTid === liveGame.homeTid ? 'homeStats' : 'awayStats'][scorer.id]) {
-        const stats = { pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 };
-        liveGame[offenseTid === liveGame.homeTid ? 'homeStats' : 'awayStats'][scorer.id] = stats;
+      if (!liveGame[statsKey][ballHandler.id]) {
+        liveGame[statsKey][ballHandler.id] = { pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 };
       }
-      if (!liveGame[defenseTid === liveGame.homeTid ? 'homeStats' : 'awayStats'][defender.id]) {
-        const stats = { pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 };
-        liveGame[defenseTid === liveGame.homeTid ? 'homeStats' : 'awayStats'][defender.id] = stats;
+      if (!liveGame[statsKey][defender.id]) {
+        liveGame[statsKey][defender.id] = { pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 };
       }
-
-      // Determine action type weighted by player ratings
-      const ratings = scorer.ratings || {};
-      const rand = Math.random();
-      let action = 'midrange';
       
-      if (rand < 0.05) action = 'turnover';
-      else if (rand < 0.15) action = 'foul';
-      else if (rand < 0.30) action = '3pt';
-      else if (rand < 0.55) action = 'midrange';
-      else if (rand < 0.80) action = 'drive';
-      else action = 'pass';
-
-      const playerStats = liveGame[offenseTid === liveGame.homeTid ? 'homeStats' : 'awayStats'][scorer.id];
-
-      switch (action) {
-        case 'turnover': {
-          playerStats.tov += 1;
+      const bhStats = liveGame[statsKey][ballHandler.id];
+      const defStats = liveGame[isHome ? 'awayStats' : 'homeStats'][defender.id];
+      
+      // STEP 1: Turnover check (13% base probability, influenced by ballhandler ratings)
+      const bhSpd = n0((ballHandler.ratings?.spd || 50) / 100) || 0.5;
+      const turnoverChance = Math.max(0.07, Math.min(0.25, 0.13 * (1 - (bhSpd / 150))));
+      
+      if (Math.random() < turnoverChance) {
+        bhStats.tov += 1;
+        
+        // 55% of turnovers are steals by defender
+        if (Math.random() < 0.55) {
+          defStats.stl += 1;
+          liveGame.pbp.push({
+            q: liveGame.quarter,
+            t: formatClockTime(liveGame.clock),
+            text: `Steal! ${defender.firstName} strips ${ballHandler.firstName}!`
+          });
+        } else {
           const pbpTexts = [
-            `${scorer.firstName} turns the ball over.`,
-            `Turnover — bad pass by ${scorer.firstName}.`,
-            `${scorer.firstName} loses control of the ball.`
+            `${ballHandler.firstName} turns the ball over.`,
+            `Turnover — bad pass by ${ballHandler.firstName}.`,
+            `${ballHandler.firstName} loses control of the ball.`
           ];
           liveGame.pbp.push({
             q: liveGame.quarter,
             t: formatClockTime(liveGame.clock),
             text: pbpTexts[randInt(0, pbpTexts.length - 1)]
           });
-          liveGame.possession = defenseTid;
-          break;
         }
-        case 'foul': {
-          const foulTexts = [
-            `Foul on ${defender.firstName}.`,
-            `${defender.firstName} fouls ${scorer.firstName}.`,
-            `Personal foul on ${defender.firstName}.`
+        liveGame.possession = defenseTid;
+        liveGame.clock -= randInt(6, 24);
+        return;
+      }
+      
+      // STEP 2: Decide shot type (87% of possessions result in shot attempt)
+      const rand = Math.random();
+      let shotType = '2pt';  // 2pt, '3pt', 'ft'
+      
+      if (rand < 0.23) shotType = '3pt';     // 23% threes
+      else if (rand < 0.28) shotType = 'ft'; // 5% direct FT
+      else shotType = '2pt';                  // 72% twos
+      
+      // STEP 3: Shot attempt with block chance on 2-pointers
+      const shooter = shotType === '2pt' ? ballHandler : offenseRoster[randInt(0, offenseRoster.length - 1)];
+      if (!liveGame[statsKey][shooter.id]) {
+        liveGame[statsKey][shooter.id] = { pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 };
+      }
+      const shooterStats = liveGame[statsKey][shooter.id];
+      
+      // Block chance on 2-pointers (6% base)
+      if (shotType === '2pt') {
+        const defBlockRating = n0((defender.ratings?.blk || 50) / 100) || 0.5;
+        const blockChance = Math.min(0.15, 0.06 * (defBlockRating / 0.9));
+        
+        if (Math.random() < blockChance) {
+          defStats.blk += 1;
+          liveGame.pbp.push({
+            q: liveGame.quarter,
+            t: formatClockTime(liveGame.clock),
+            text: `Block! ${defender.firstName} rejects ${shooter.firstName}!`
+          });
+          liveGame.possession = defenseTid;
+          liveGame.clock -= randInt(6, 24);
+          return;
+        }
+      }
+      
+      // STEP 4: Determine make/miss with realistic percentages
+      let isMake = false;
+      const shooterRating = n0((shooter.ratings?.[shotType === '3pt' ? 'tp' : shotType === 'ft' ? 'ft' : 'mid'] || shooter.ovr) / 100) || 0.5;
+      const defenderDef = n0((defender.ratings?.perD || 50) / 100) || 0.5;
+      
+      if (shotType === '3pt') {
+        // 3P%: ~34% base
+        isMake = shooterRating * 0.80 + randInt(-12, 12) > defenderDef * 0.50 + randInt(-8, 8);
+        shooterStats.tpa += 1;
+      } else if (shotType === 'ft') {
+        // FT%: ~77% base
+        isMake = Math.random() < (shooterRating * 0.90 + 0.10);
+        shooterStats.fta += 1;
+      } else {
+        // 2P%: ~48% base
+        isMake = shooterRating * 0.85 + randInt(-10, 10) > defenderDef * 0.55 + randInt(-8, 8);
+        shooterStats.fga += 1;
+      }
+      
+      // STEP 5: Track make/miss and score
+      let pointsScored = 0;
+      if (isMake) {
+        pointsScored = shotType === '3pt' ? 3 : (shotType === 'ft' ? 1 : 2);
+        
+        if (shotType === '3pt') {
+          shooterStats.tpm += 1;
+          shooterStats.fgm += 1;
+        } else if (shotType === 'ft') {
+          shooterStats.ftm += 1;
+        } else {
+          shooterStats.fgm += 1;
+        }
+        shooterStats.pts += pointsScored;
+        
+        if (isHome) liveGame.homeScore += pointsScored;
+        else liveGame.awayScore += pointsScored;
+        applyScoringMeta(liveGame, offenseTid, pointsScored);
+        
+        // STEP 6: Assist on made shots (60% chance)
+        if (Math.random() < 0.60 && shooter.id !== ballHandler.id) {
+          bhStats.ast += 1;
+          const assist = `(Assist: ${ballHandler.firstName})`;
+          const makeTexts = [
+            `${shooter.firstName} ${pointsScored === 3 ? 'drains a three' : 'scores'}! ${assist}`,
+            `Good pass! ${shooter.firstName} finishes. ${assist}`,
+            `${shooter.firstName} banks it in! ${assist}`
           ];
           liveGame.pbp.push({
             q: liveGame.quarter,
             t: formatClockTime(liveGame.clock),
-            text: foulTexts[randInt(0, foulTexts.length - 1)] + ` Free throws.`
+            text: makeTexts[randInt(0, makeTexts.length - 1)]
           });
-          // Free throws
-          const ftAttempts = randInt(1, 2);
-          playerStats.fta += ftAttempts;
-          const ftMakes = Math.random() < 0.75 ? ftAttempts : Math.max(0, ftAttempts - 1);
-          playerStats.ftm += ftMakes;
-          playerStats.pts += ftMakes;
-          if (offenseTid === liveGame.homeTid) liveGame.homeScore += ftMakes;
-          else liveGame.awayScore += ftMakes;
-          applyScoringMeta(liveGame, offenseTid, ftMakes);
-          liveGame.possession = defenseTid;
-          break;
+        } else {
+          const makeTexts = [
+            `${shooter.firstName} ${pointsScored === 3 ? 'drains a three' : 'scores'}!`,
+            `${shooter.firstName} with the bucket!`,
+            `${shooter.firstName} hits it!`
+          ];
+          liveGame.pbp.push({
+            q: liveGame.quarter,
+            t: formatClockTime(liveGame.clock),
+            text: makeTexts[randInt(0, makeTexts.length - 1)]
+          });
         }
-        case '3pt': {
-          playerStats.tpa += 1;
-          const shooterRating = (ratings.tp || scorer.ovr) + randInt(-5, 5);
-          const defenderRating = (defenseRoster.find(p => p.id === defender.id)?.ratings?.perD || defender.ovr) + randInt(-5, 5);
-          const make = shooterRating + randInt(-3, 3) > defenderRating;
-          
-          if (make) {
-            playerStats.tpm += 1;
-            playerStats.fgm += 1;
-            playerStats.pts += 3;
-            if (offenseTid === liveGame.homeTid) liveGame.homeScore += 3;
-            else liveGame.awayScore += 3;
-            applyScoringMeta(liveGame, offenseTid, 3);
-            
-            const make3pts = [
-              `${scorer.firstName} nails a three!`,
-              `${scorer.firstName} buries a corner three!`,
-              `From deep — ${scorer.firstName} hits a three-pointer!`,
-              `${scorer.firstName} drains it from downtown!`
-            ];
-            liveGame.pbp.push({
-              q: liveGame.quarter,
-              t: formatClockTime(liveGame.clock),
-              text: make3pts[randInt(0, make3pts.length - 1)]
-            });
-          } else {
-            playerStats.fga += 1;
-            liveGame.pbp.push({
-              q: liveGame.quarter,
-              t: formatClockTime(liveGame.clock),
-              text: `${scorer.firstName} misses a three-pointer.`
-            });
+      } else {
+        // Miss - show miss text
+        const missTexts = [
+          `${shooter.firstName} misses ${shotType === '3pt' ? 'a three' : 'the shot'}.`,
+          `${shooter.firstName} misses.`,
+          `No good by ${shooter.firstName}.`
+        ];
+        liveGame.pbp.push({
+          q: liveGame.quarter,
+          t: formatClockTime(liveGame.clock),
+          text: missTexts[randInt(0, missTexts.length - 1)]
+        });
+      }
+      
+      // STEP 7: Rebound opportunity (if miss or blocked shot)
+      if (!isMake || (shotType === 'ft' && !isMake)) {
+        // Offensive rebound chance: 25% base
+        const offRebChance = 0.25;
+        const isOffensive = Math.random() < offRebChance;
+        
+        if (isOffensive) {
+          // Aggressive offensive rebounder
+          const offRebounder = offenseRoster[randInt(0, offenseRoster.length - 1)];
+          if (!liveGame[statsKey][offRebounder.id]) {
+            liveGame[statsKey][offRebounder.id] = { pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 };
           }
+          liveGame[statsKey][offRebounder.id].reb += 1;
+          liveGame.pbp.push({
+            q: liveGame.quarter,
+            t: formatClockTime(liveGame.clock),
+            text: `Offensive rebound: ${offRebounder.firstName}.`
+          });
+          // Possession stays with offense
+        } else {
+          // Defensive rebounder
+          const defRebounder = defenseRoster[randInt(0, defenseRoster.length - 1)];
+          if (!liveGame[isHome ? 'awayStats' : 'homeStats'][defRebounder.id]) {
+            liveGame[isHome ? 'awayStats' : 'homeStats'][defRebounder.id] = { pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 };
+          }
+          liveGame[isHome ? 'awayStats' : 'homeStats'][defRebounder.id].reb += 1;
+          liveGame.pbp.push({
+            q: liveGame.quarter,
+            t: formatClockTime(liveGame.clock),
+            text: `Rebound: ${defRebounder.firstName}.`
+          });
+          // Possession changes
           liveGame.possession = defenseTid;
-          break;
         }
-        case 'midrange': {
-          playerStats.fga += 1;
-          const shooterRating = (ratings.mid || scorer.ovr) + randInt(-5, 5);
-          const defenderRating = (defenseRoster.find(p => p.id === defender.id)?.ratings?.perD || defender.ovr) + randInt(-5, 5);
-          const make = shooterRating + randInt(-3, 3) > defenderRating;
-          
-          if (make) {
-            playerStats.fgm += 1;
-            playerStats.pts += 2;
-            if (offenseTid === liveGame.homeTid) liveGame.homeScore += 2;
-            else liveGame.awayScore += 2;
-            applyScoringMeta(liveGame, offenseTid, 2);
-            
-            const makeMid = [
-              `${scorer.firstName} hits a pull-up jumper.`,
-              `${scorer.firstName} drains the mid-range shot.`,
-              `Good! ${scorer.firstName} from the mid-post.`
-            ];
-            liveGame.pbp.push({
-              q: liveGame.quarter,
-              t: formatClockTime(liveGame.clock),
-              text: makeMid[randInt(0, makeMid.length - 1)]
-            });
-          } else {
-            liveGame.pbp.push({
-              q: liveGame.quarter,
-              t: formatClockTime(liveGame.clock),
-              text: `${scorer.firstName} misses the midrange shot.`
-            });
-          }
-          liveGame.possession = defenseTid;
-          break;
-        }
-        case 'drive': {
-          playerStats.fga += 1;
-          const driverRating = ((ratings.fin || 0) + (ratings.ath || 0) + (ratings.spd || 0)) / 300 * 100;
-          const defenderRating = (defenseRoster.find(p => p.id === defender.id)?.ratings?.perD || defender.ovr) + randInt(-5, 5);
-          const make = driverRating + randInt(-3, 3) > defenderRating;
-          
-          if (make) {
-            playerStats.fgm += 1;
-            playerStats.pts += 2;
-            if (offenseTid === liveGame.homeTid) liveGame.homeScore += 2;
-            else liveGame.awayScore += 2;
-            applyScoringMeta(liveGame, offenseTid, 2);
-            
-            const driveTexts = [
-              `${scorer.firstName} drives and finishes at the rim.`,
-              `${scorer.firstName} drives hard and scores!`,
-              `Layup! ${scorer.firstName} with the take.`
-            ];
-            liveGame.pbp.push({
-              q: liveGame.quarter,
-              t: formatClockTime(liveGame.clock),
-              text: driveTexts[randInt(0, driveTexts.length - 1)]
-            });
-          } else {
-            // Possible block
-            if (Math.random() < 0.3) {
-              const defenderStats = liveGame[defenseTid === liveGame.homeTid ? 'homeStats' : 'awayStats'][defender.id];
-              defenderStats.blk += 1;
-              liveGame.pbp.push({
-                q: liveGame.quarter,
-                t: formatClockTime(liveGame.clock),
-                text: `${defender.firstName} blocks ${scorer.firstName}!`
-              });
-            } else {
-              liveGame.pbp.push({
-                q: liveGame.quarter,
-                t: formatClockTime(liveGame.clock),
-                text: `${scorer.firstName} misses the layup.`
-              });
-            }
-          }
-          liveGame.possession = defenseTid;
-          break;
-        }
-        case 'pass': {
-          // Pass to assist
-          const passer = scorer;
-          const passerStats = playerStats;
-          const recipients = offenseRoster.filter(p => p.id !== passer.id);
-          const recipient = recipients[randInt(0, recipients.length - 1)];
-          
-          if (!liveGame[offenseTid === liveGame.homeTid ? 'homeStats' : 'awayStats'][recipient.id]) {
-            const stats = { pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 };
-            liveGame[offenseTid === liveGame.homeTid ? 'homeStats' : 'awayStats'][recipient.id] = stats;
-          }
-          
-          const recipientStats = liveGame[offenseTid === liveGame.homeTid ? 'homeStats' : 'awayStats'][recipient.id];
-          recipientStats.fga += 1;
-          
-          const shooterRating = (recipient.ratings?.fin || recipient.ovr) + randInt(-5, 5);
-          const defenderRating = (defenseRoster.find(p => p.id !== defender.id)?.ratings?.perD || defenseTeam.abbrev) + randInt(-5, 5);
-          const make = shooterRating + randInt(-3, 3) > defenderRating;
-          
-          if (make) {
-            recipientStats.fgm += 1;
-            recipientStats.pts += 2;
-            passerStats.ast += 1;
-            if (offenseTid === liveGame.homeTid) liveGame.homeScore += 2;
-            else liveGame.awayScore += 2;
-            applyScoringMeta(liveGame, offenseTid, 2);
-            
-            const assistTexts = [
-              `${passer.firstName} finds ${recipient.firstName} for the bucket. (Assist: ${passer.firstName})`,
-              `${recipient.firstName} scores on the pass from ${passer.firstName}. (Assist: ${passer.firstName})`,
-              `Good pass! ${recipient.firstName} finishes. (Assist: ${passer.firstName})`
-            ];
-            liveGame.pbp.push({
-              q: liveGame.quarter,
-              t: formatClockTime(liveGame.clock),
-              text: assistTexts[randInt(0, assistTexts.length - 1)]
-            });
-          } else {
-            liveGame.pbp.push({
-              q: liveGame.quarter,
-              t: formatClockTime(liveGame.clock),
-              text: `${recipient.firstName} misses the shot.`
-            });
-          }
-          liveGame.possession = defenseTid;
-          break;
-        }
+      } else if (shotType === 'ft' && isMake) {
+        // FT made, possession ends
+        liveGame.possession = defenseTid;
+      } else {
+        // Made field goal, possession changes immediately (except for offensive rebound scenarios)
+        liveGame.possession = defenseTid;
       }
 
       // Advance clock
@@ -4351,38 +4382,6 @@
             });
           }
         }
-      }
-
-      // Calculate score change and possession time
-      const homeScoreDelta = liveGame.homeScore - homeScoreBefore;
-      const awayScoreDelta = liveGame.awayScore - awayScoreBefore;
-      const dtSec = randInt(6, 24);
-      
-      // Determine which team scored (if any)
-      let scoringTeam = null;
-      let pointsScored = 0;
-      
-      if (homeScoreDelta > 0) {
-        scoringTeam = liveGame.homeTid;
-        pointsScored = homeScoreDelta;
-      } else if (awayScoreDelta > 0) {
-        scoringTeam = liveGame.awayTid;
-        pointsScored = awayScoreDelta;
-      }
-      
-      // Update lineup aggregates for this possession
-      updateLineupAggregates({
-        league: state.league,
-        liveGame,
-        scoringTeam,
-        points: pointsScored,
-        possTeam: offenseTid,
-        dtSec
-      });
-
-      // Cap PBP size
-      if (liveGame.pbp.length > 400) {
-        liveGame.pbp = liveGame.pbp.slice(-250);
       }
     }
 
@@ -6535,21 +6534,26 @@
       `;
     }
 
-    // Advanced stats computations
+    // Advanced stats computations (safe - no NaN)
     function computeEFG(fgm, fga, tpm) {
-      if (fga <= 0) return 0;
-      return ((fgm + 0.5 * tpm) / fga);
+      const fg = n0(fgm);
+      const ga = n0(fga);
+      const tp = n0(tpm);
+      return safeDiv(fg + 0.5 * tp, ga);
     }
     
     function computeTS(pts, fga, fta) {
-      const denom = 2 * (fga + 0.44 * fta);
-      if (denom <= 0) return 0;
-      return pts / denom;
+      const p = n0(pts);
+      const ga = n0(fga);
+      const ta = n0(fta);
+      const denom = 2 * (ga + 0.44 * ta);
+      return safeDiv(p, denom);
     }
     
     function computeASTTOV(ast, tov) {
-      if (tov <= 0) return tov === 0 ? 0 : ast / tov;
-      return ast / tov;
+      const a = n0(ast);
+      const t = n0(tov);
+      return t > 0 ? a / t : (a > 0 ? 999.9 : 0);
     }
     
     // Aggregate lineups from game stats
@@ -6611,13 +6615,23 @@
         return player.stats;
       }
       
-      // Calculate per-game values
+      // Calculate per-game values (safe - no NaN)
       function perGame(value, gp) {
-        return gp > 0 ? (value / gp).toFixed(1) : "0.0";
+        const val = n0(value);
+        const g = n0(gp);
+        return safeDiv(val, g).toFixed(1);
       }
       
       function percentage(made, attempt) {
-        return attempt > 0 ? ((made / attempt) * 100).toFixed(1) : "0.0";
+        const m = n0(made);
+        const a = n0(attempt);
+        return safePct(m, a).toFixed(1);
+      }
+      
+      // Format stat value - display "—" if NaN or invalid
+      function formatStat(value, decimals = 1) {
+        if (!Number.isFinite(value)) return '—';
+        return parseFloat(value).toFixed(decimals);
       }
       
       // Get team function
@@ -6906,19 +6920,19 @@
                       <td style="padding:10px; text-align:center; font-size:11px; color:var(--muted);">${p.teamAbbrev}</td>
                       <td style="padding:10px; text-align:center; font-size:11px; color:var(--muted);">${p.pos}</td>
                       <td style="padding:10px; text-align:center;">${getStats(p).gp}</td>
-                      <td style="padding:10px; text-align:center;">${p.mpg.toFixed(1)}</td>
-                      <td style="padding:10px; text-align:center; color:var(--good); font-weight:600;">${p.ppg.toFixed(1)}</td>
-                      <td style="padding:10px; text-align:center;">${p.rpg.toFixed(1)}</td>
-                      <td style="padding:10px; text-align:center;">${p.apg.toFixed(1)}</td>
-                      <td style="padding:10px; text-align:center;">${p.spg.toFixed(1)}</td>
-                      <td style="padding:10px; text-align:center;">${p.bpg.toFixed(1)}</td>
-                      <td style="padding:10px; text-align:center;">${p.topg.toFixed(1)}</td>
+                      <td style="padding:10px; text-align:center;">${formatStat(p.mpg)}</td>
+                      <td style="padding:10px; text-align:center; color:var(--good); font-weight:600;">${formatStat(p.ppg)}</td>
+                      <td style="padding:10px; text-align:center;">${formatStat(p.rpg)}</td>
+                      <td style="padding:10px; text-align:center;">${formatStat(p.apg)}</td>
+                      <td style="padding:10px; text-align:center;">${formatStat(p.spg)}</td>
+                      <td style="padding:10px; text-align:center;">${formatStat(p.bpg)}</td>
+                      <td style="padding:10px; text-align:center;">${formatStat(p.topg)}</td>
                       <td style="padding:10px; text-align:center;">${p.fgPct}%</td>
                       <td style="padding:10px; text-align:center;">${p.tpPct}%</td>
                       <td style="padding:10px; text-align:center;">${p.ftPct}%</td>
                       <td class="advStatsCell" style="padding:10px; text-align:center; color:#22d3ee; display:none; font-weight:600;">${p.efgPct}%</td>
                       <td class="advStatsCell" style="padding:10px; text-align:center; color:#22d3ee; display:none; font-weight:600;">${p.tsPct}%</td>
-                      <td class="advStatsCell" style="padding:10px; text-align:center; color:#a78bfa; display:none; font-weight:600;">${p.astto}</td>
+                      <td class="advStatsCell" style="padding:10px; text-align:center; color:#a78bfa; display:none; font-weight:600;">${formatStat(p.astto, 2)}</td>
                     </tr>`).join('')}
                   </tbody>
                 </table>
