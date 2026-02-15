@@ -4483,6 +4483,7 @@
       if (shotType === '3pt') base = 0.34;
       else if (shotType === 'mid') base = 0.42;
       else if (shotType === 'rim') base = 0.55;
+      else if (shotType === 'drive') base = 0.50; // drive: between 2pt and rim
       
       // Adjust for ratings
       const shooterBonus = (sr - 0.5) * 0.3; // shooter rating effect
@@ -4492,7 +4493,7 @@
       
       // Archetype-based adjustments (e.g., Shot Creator gets bonus on difficult shots)
       if (archetype === 'Sharpshooter' && shotType === '3pt') probability *= 1.1;
-      if (archetype === 'Slasher' && shotType === 'rim') probability *= 1.15;
+      if (archetype === 'Slasher' && (shotType === 'rim' || shotType === 'drive')) probability *= 1.15;
       
       return Math.max(0.15, Math.min(0.95, probability * CALIBRATION.shotMakeFactor));
     }
@@ -4680,7 +4681,7 @@
       const shooterStats = liveGame[statsKey][shooter.id];
       
       // Block chance on 2-pointers and rim attempts using tendencies-driven calculation
-      if (shotType === 'rim' || shotType === '2pt') {
+      if (shotType === 'rim' || shotType === 'drive') {
         const blockProb = calculateBlockProbability(defender.ratings?.blk || 50, shooter.ratings?.[shotType === '3pt' ? 'tp' : 'mid'] || 50, defender.tendencies?.blockFreq || 50, shotType);
         
         if (Math.random() < blockProb) {
@@ -4701,7 +4702,8 @@
       }
       
       // STEP 4: Determine make/miss using rating-based probability
-      const ratingKey = shotType === '3pt' ? 'tp' : shotType === 'ft' ? 'ft' : 'mid';
+      // selectShotType returns '3pt', 'rim', 'mid', or 'drive' - map to rating key and attempt type
+      const ratingKey = shotType === '3pt' ? 'tp' : shotType === 'ft' ? 'ft' : 'mid'; // rm/mid/drive all use mid rating
       const shooterRating = shooter.ratings?.[ratingKey] || 50;
       const defenderRating = defender.ratings?.perD || 50;
       
@@ -4715,10 +4717,12 @@
         // FT make % based on rating
         const ft_pct = 0.50 + n0((shooterRating - 50) / 200);
         isMake = Math.random() < ft_pct;
-      } else if (shotType === 'rim') {
+      } else if (shotType === 'rim' || shotType === 'drive') {
         shooterStats.fga += 1;
+        // rim+drive shots are finishes around the basket
         isMake = Math.random() < calculateShotMakeProbability('rim', shooterRating, defenderRating, shooter.archetype);
       } else {
+        // 'mid' shot type
         shooterStats.fga += 1;
         isMake = Math.random() < calculateShotMakeProbability('mid', shooterRating, defenderRating, shooter.archetype);
       }
