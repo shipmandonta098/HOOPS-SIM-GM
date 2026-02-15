@@ -3555,6 +3555,12 @@
         };
       }
 
+      // Store box stats (for schedule view and potential replay)
+      game.box = {
+        homeStats: liveGame.homeStats,
+        awayStats: liveGame.awayStats
+      };
+
       // Update team records
       const homeTeam = teamById(game.homeTid);
       const awayTeam = teamById(game.awayTid);
@@ -3611,6 +3617,119 @@
       state.ui.liveGameOpen = false;
       state.ui.liveGame = null;
       state.live.watch.isOpen = false;
+    }
+
+    /**
+     * Complete a game quickly without DOM updates
+     * Used when user clicks "Finish & Save" to simulate remaining possessions
+     */
+    function completeGameFast(liveGame) {
+      const maxIterations = 50000;
+      let iterations = 0;
+
+      while (!liveGame.isFinal && iterations < maxIterations) {
+        playNextPossession(liveGame);
+        iterations++;
+      }
+
+      if (iterations >= maxIterations) {
+        console.warn("[completeGameFast] Max iterations reached");
+      }
+    }
+
+    /**
+     * Show exit prompt when user tries to exit an unfinished game
+     */
+    function showExitPrompt() {
+      const lg = state.ui.liveGame;
+      if (!lg) return;
+
+      const homeTeam = teamById(lg.homeTid);
+      const awayTeam = teamById(lg.awayTid);
+
+      // Create modal overlay
+      let promptRoot = document.getElementById("watchExitPromptRoot");
+      if (!promptRoot) {
+        promptRoot = document.createElement("div");
+        promptRoot.id = "watchExitPromptRoot";
+        document.body.appendChild(promptRoot);
+      }
+
+      promptRoot.innerHTML = `
+        <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 1100;">
+          <div style="background: #1a1a1a; border: 2px solid #333; border-radius: 12px; padding: 24px; max-width: 400px; box-shadow: 0 8px 32px rgba(0,0,0,0.5);">
+            <h2 style="font-size: 20px; font-weight: 700; margin: 0 0 12px 0; color: #fff;">Exit Watch?</h2>
+            <p style="color: #aaa; margin: 0 0 16px 0; font-size: 14px;">
+              This game between <strong>${awayTeam.abbrev}</strong> and <strong>${homeTeam.abbrev}</strong> is not finished yet.
+            </p>
+            <div style="background: rgba(0,0,0,0.3); border-left: 3px solid #eab308; padding: 12px; border-radius: 4px; margin-bottom: 20px; font-size: 12px; color: #ddd;">
+              <strong>Current Score:</strong> ${awayTeam.abbrev} ${lg.awayScore} – ${homeTeam.abbrev} ${lg.homeScore} (Q${lg.quarter})
+            </div>
+            <div style="display: flex; gap: 8px; justify-content: flex-end;">
+              <button id="exitPromptCancel" style="padding: 10px 16px; background: #333; border: 1px solid #555; border-radius: 6px; cursor: pointer; color: #ccc; font-weight: 600; font-size: 12px;">
+                Cancel
+              </button>
+              <button id="exitPromptKeepUnplayed" style="padding: 10px 16px; background: #666; border: 1px solid #888; border-radius: 6px; cursor: pointer; color: #fff; font-weight: 600; font-size: 12px;">
+                Keep Unplayed
+              </button>
+              <button id="exitPromptFinish" style="padding: 10px 16px; background: #22c55e; border: none; border-radius: 6px; cursor: pointer; color: #000; font-weight: 700; font-size: 12px;">
+                Finish & Save
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+
+      // Event handlers
+      document.getElementById("exitPromptCancel").addEventListener("click", () => {
+        promptRoot.remove();
+      });
+
+      document.getElementById("exitPromptKeepUnplayed").addEventListener("click", () => {
+        promptRoot.remove();
+        handleKeepUnplayed();
+      });
+
+      document.getElementById("exitPromptFinish").addEventListener("click", () => {
+        promptRoot.remove();
+        handleFinishAndSave();
+      });
+    }
+
+    /**
+     * Handle "Keep Unplayed" - close modal without saving
+     */
+    async function handleKeepUnplayed() {
+      stopWatchLoop();
+      closeWatchModal();
+      await saveCurrentLeague();
+      render();
+      showBanner("info", "ℹ Watch session closed – game remains unplayed");
+    }
+
+    /**
+     * Handle "Finish & Save" - complete game and save result
+     */
+    async function handleFinishAndSave() {
+      const lg = state.ui.liveGame;
+      if (!lg) return;
+
+      stopWatchLoop();
+      
+      // Quickly complete remaining possessions (no UI updates)
+      completeGameFast(lg);
+
+      // Finalize the game
+      if (finalizeGameFromLive(lg)) {
+        showBanner("success", "✓ Game completed and saved");
+      }
+
+      // Save to disk
+      await saveCurrentLeague();
+
+      // Close modal and refresh schedule
+      closeWatchModal();
+      render();
     }
 
     function initLiveGame(gameId) {
@@ -5644,7 +5763,10 @@
                             ${homeLogo} ${escapeHtml(homeTeam.abbrev)}
                           </td>
                           <td style="padding: 8px; text-align: center; display: flex; gap: 4px; justify-content: center; flex-wrap: wrap;">
-                            ${game.played ? '<span class="tag" style="background: #22c55e; color: #000; font-size: 10px;">✓</span>' : (isUpcoming ? `
+                            ${game.played ? `
+                              <span class="tag" style="background: #22c55e; color: #000; font-size: 10px; padding: 2px 6px; border-radius: 2px; font-weight: 600;">Final</span>
+                              <button class="schedBoxScore" data-game-id="${game.id}" style="padding: 2px 6px; font-size: 9px; background: #3b82f6; border: none; border-radius: 2px; cursor: pointer; color: #fff; font-weight: 600;">Box</button>
+                            ` : (isUpcoming ? `
                               <button class="schedSimulate" data-game-id="${game.id}" style="padding: 2px 6px; font-size: 9px; background: #22c55e; border: none; border-radius: 2px; cursor: pointer; color: #000; font-weight: 600;">Sim</button>
                               <button class="schedWatch" data-game-id="${game.id}" style="padding: 2px 6px; font-size: 9px; background: #3b82f6; border: none; border-radius: 2px; cursor: pointer; color: #fff;">Watch</button>
                             ` : '<span class="tag" style="background: #333; color: #888; font-size: 10px;">Past</span>')}
@@ -6556,6 +6678,18 @@
             }
           });
         });
+
+        // Box Score buttons for played games
+        document.querySelectorAll(".schedBoxScore").forEach(btn => {
+          btn.addEventListener("click", () => {
+            const gameId = btn.dataset.gameId;
+            const game = state.league.schedule.games.find(g => g.id === gameId);
+            if (game && game.played) {
+              showBanner("info", `ℹ Box Score for ${game.id} (feature coming soon)`);
+              // TODO: Open box score modal with saved stats
+            }
+          });
+        });
       }
 
       // WATCH GAME MODAL HANDLERS (create modal once, update incrementally)
@@ -6656,26 +6790,29 @@
             }
           }
           
-          // Exit button - just close without finalizing
+          // Exit button - close or show prompt
           if (e.target.closest('[data-action="watch-exit"]')) {
             const lg = state.ui.liveGame;
+            const schedule = state.league.schedule;
+            const game = schedule.games.find(g => g.id === lg.gameId);
             
-            // If game is already final (naturally finished or sim'd), finalize and show result
-            if (lg && lg.isFinal) {
-              if (finalizeGameFromLive(lg)) {
-                showBanner("success", "✓ Game finalized");
+            // If game is already final or already played, just close
+            if (!lg || lg.isFinal || (game && game.played)) {
+              if (lg && lg.isFinal && game && !game.played) {
+                // Finalize if still needed
+                finalizeGameFromLive(lg);
               }
-            }
-            
-            // Close modal and clear state
-            await saveCurrentLeague();
-            closeWatchModal();
-            render();
-            
-            if (lg && lg.isFinal) {
-              showBanner("success", "✓ Game saved");
+              await saveCurrentLeague();
+              closeWatchModal();
+              render();
+              if (lg && lg.isFinal) {
+                showBanner("success", "✓ Game saved");
+              } else {
+                showBanner("info", "ℹ Watch session closed");
+              }
             } else {
-              showBanner("info", "ℹ Watch session closed");
+              // Show exit prompt for unfinished games
+              showExitPrompt();
             }
           }
         });
