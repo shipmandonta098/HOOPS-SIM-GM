@@ -4050,6 +4050,7 @@
       // Check for quarter end
       if (liveGame.clock <= 0) {
         if (liveGame.quarter < 4) {
+          // Regular quarter transition
           liveGame.quarter += 1;
           liveGame.clock = 720;
           liveGame.pbp.push({
@@ -4057,13 +4058,48 @@
             t: '12:00',
             text: `End of Q${liveGame.quarter - 1}. Q${liveGame.quarter} begins.`
           });
+        } else if (liveGame.quarter === 4) {
+          // End of regulation - check for OT
+          if (liveGame.homeScore === liveGame.awayScore) {
+            // Game is tied, go to OT
+            liveGame.quarter = 5; // OT1
+            liveGame.clock = 300; // 5 minutes for OT
+            liveGame.pbp.push({
+              q: 5,
+              t: '5:00',
+              text: `Overtime! Both teams tied at ${liveGame.homeScore}.`
+            });
+          } else {
+            // Game is decided
+            liveGame.isFinal = true;
+            liveGame.pbp.push({
+              q: 4,
+              t: '00:00',
+              text: `FINAL: ${liveGame.awayTeam} ${liveGame.awayScore} – ${liveGame.homeTeam} ${liveGame.homeScore}`
+            });
+          }
         } else {
-          liveGame.isFinal = true;
-          liveGame.pbp.push({
-            q: 4,
-            t: '00:00',
-            text: `FINAL: ${liveGame.awayTeam} ${liveGame.awayScore} – ${liveGame.homeTeam} ${liveGame.homeScore}`
-          });
+          // End of OT - check if still tied
+          if (liveGame.homeScore === liveGame.awayScore) {
+            // Still tied, continue to next OT
+            liveGame.quarter += 1;
+            liveGame.clock = 300;
+            const otNumber = liveGame.quarter - 4;
+            liveGame.pbp.push({
+              q: liveGame.quarter,
+              t: '5:00',
+              text: `OT${otNumber}! Play continues.`
+            });
+          } else {
+            // OT is over, someone won
+            liveGame.isFinal = true;
+            const otNumber = liveGame.quarter - 4;
+            liveGame.pbp.push({
+              q: liveGame.quarter,
+              t: '00:00',
+              text: `FINAL (OT${otNumber}): ${liveGame.awayTeam} ${liveGame.awayScore} – ${liveGame.homeTeam} ${liveGame.homeScore}`
+            });
+          }
         }
       }
 
@@ -4077,6 +4113,18 @@
       const mins = Math.floor(Math.abs(seconds) / 60);
       const secs = Math.abs(seconds) % 60;
       return `${mins}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    /**
+     * Format quarter label with proper OT support
+     */
+    function formatQuarterLabel(quarter) {
+      if (quarter <= 4) {
+        return `Q${quarter}`;
+      } else {
+        const otNumber = quarter - 4;
+        return `OT${otNumber}`;
+      }
     }
 
     /**
@@ -4210,7 +4258,7 @@
           clockEl.textContent = "FINAL";
           clockEl.style.color = "#22c55e";
         } else {
-          clockEl.textContent = `Q${lg.quarter} · ${formatClockTime(lg.clock)}`;
+          clockEl.textContent = `${formatQuarterLabel(lg.quarter)} · ${formatClockTime(lg.clock)}`;
           clockEl.style.color = "#eab308";
         }
       }
@@ -5904,7 +5952,7 @@
 
             <!-- Game Status -->
             <div id="watchClock" style="padding: 16px; background: rgba(0,0,0,0.3); text-align: center; font-size: 24px; font-weight: 600; color: ${lg.isFinal ? '#22c55e' : '#eab308'}; flex: 0 0 auto;">
-              ${lg.isFinal ? 'FINAL' : `Q${lg.quarter} · ${formatClockTime(lg.clock)}`}
+              ${lg.isFinal ? 'FINAL' : `${formatQuarterLabel(lg.quarter)} · ${formatClockTime(lg.clock)}`}
             </div>
 
             <!-- Controls and View Toggle -->
