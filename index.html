@@ -3509,6 +3509,110 @@
     /**
      * Initialize live game object for watching
      */
+    /**
+     * Finalize a game from live state and update standings
+     * ONLY call when liveGame.isFinal === true
+     */
+    function finalizeGameFromLive(liveGame) {
+      if (!liveGame.isFinal) {
+        console.warn("Cannot finalize game: liveGame.isFinal !== true");
+        return false;
+      }
+
+      const schedule = state.league.schedule;
+      const game = schedule.games.find(g => g.id === liveGame.gameId);
+      
+      if (!game) {
+        console.warn("Game not found in schedule");
+        return false;
+      }
+
+      // Prevent double-finalization
+      if (game.played) {
+        console.warn("Game already finalized");
+        return false;
+      }
+
+      // Mark as played and store final scores
+      game.played = true;
+      game.homeScore = liveGame.homeScore;
+      game.awayScore = liveGame.awayScore;
+      
+      // Store PBP (capped)
+      if (liveGame.pbp.length > 250) {
+        game.pbp = liveGame.pbp.slice(-250);
+      } else {
+        game.pbp = liveGame.pbp;
+      }
+
+      // Store game flow meta summary
+      if (liveGame.meta) {
+        game.metaSummary = {
+          leadChanges: liveGame.meta.leadChanges,
+          timesTied: liveGame.meta.timesTied,
+          largestRunHome: liveGame.meta.largestRunHome,
+          largestRunAway: liveGame.meta.largestRunAway
+        };
+      }
+
+      // Update team records
+      const homeTeam = teamById(game.homeTid);
+      const awayTeam = teamById(game.awayTid);
+      
+      if (liveGame.homeScore > liveGame.awayScore) {
+        homeTeam.wins += 1;
+        awayTeam.losses += 1;
+        homeTeam.homeWins += 1;
+        awayTeam.roadLosses += 1;
+      } else {
+        awayTeam.wins += 1;
+        homeTeam.losses += 1;
+        awayTeam.roadWins += 1;
+        homeTeam.homeLosses += 1;
+      }
+      
+      // Conference wins/losses
+      if (homeTeam.conf === awayTeam.conf) {
+        if (liveGame.homeScore > liveGame.awayScore) {
+          homeTeam.confWins += 1;
+          awayTeam.confLosses += 1;
+        } else {
+          awayTeam.confWins += 1;
+          homeTeam.confLosses += 1;
+        }
+      }
+      
+      // Update last10 and streak
+      for (const team of [homeTeam, awayTeam]) {
+        const result = (liveGame.homeScore > liveGame.awayScore && team.id === homeTeam.id) || (liveGame.awayScore > liveGame.homeScore && team.id === awayTeam.id) ? 'W' : 'L';
+        team.last10.push(result);
+        if (team.last10.length > 10) team.last10.shift();
+        
+        if (team.last10.length > 0) {
+          const lastGame = team.last10[team.last10.length - 1];
+          if (lastGame === team.streakType || team.streakType === "—") {
+            team.streakType = lastGame;
+            team.streakLen += 1;
+          } else {
+            team.streakType = lastGame;
+            team.streakLen = 1;
+          }
+        }
+      }
+
+      return true;
+    }
+
+    /**
+     * Close watch modal without finalizing game
+     */
+    function closeWatchModal() {
+      stopWatchLoop();
+      state.ui.liveGameOpen = false;
+      state.ui.liveGame = null;
+      state.live.watch.isOpen = false;
+    }
+
     function initLiveGame(gameId) {
       const schedule = state.league.schedule;
       const game = schedule.games.find(g => g.id === gameId);
@@ -3925,6 +4029,10 @@
         const lg = state.ui.liveGame;
         if (lg.isFinal) {
           stopWatchLoop();
+          // Auto-finalize when game naturally reaches end
+          if (finalizeGameFromLive(lg)) {
+            showBanner("success", "✓ Game finished and saved");
+          }
           return;
         }
 
@@ -5651,8 +5759,8 @@
             </div>
 
             <!-- Game Status -->
-            <div id="watchClock" style="padding: 16px; background: rgba(0,0,0,0.3); text-align: center; font-size: 24px; font-weight: 600; color: #eab308; flex: 0 0 auto;">
-              Q${lg.quarter} · ${formatClockTime(lg.clock)}
+            <div id="watchClock" style="padding: 16px; background: rgba(0,0,0,0.3); text-align: center; font-size: 24px; font-weight: 600; color: ${lg.isFinal ? '#22c55e' : '#eab308'}; flex: 0 0 auto;">
+              ${lg.isFinal ? 'FINAL' : `Q${lg.quarter} · ${formatClockTime(lg.clock)}`}
             </div>
 
             <!-- Controls and View Toggle -->
@@ -6535,93 +6643,39 @@
             const lg = state.ui.liveGame;
             if (lg) {
               stopWatchLoop();
+              // Simulate until game is final
               while (!lg.isFinal) {
                 playNextPossession(lg);
+              }
+              // Finalize the game (write scores to schedule and update standings)
+              if (finalizeGameFromLive(lg)) {
+                showBanner("success", "✓ Game finalized");
               }
               updateWatchGameUI();
             }
           }
           
-          // Exit button
+          // Exit button - just close without finalizing
           if (e.target.closest('[data-action="watch-exit"]')) {
             const lg = state.ui.liveGame;
-            const schedule = state.league.schedule;
-            const game = schedule.games.find(g => g.id === lg.gameId);
             
-            if (game) {
-              game.played = true;
-              game.homeScore = lg.homeScore;
-              game.awayScore = lg.awayScore;
-              
-              // Store PBP (capped)
-              if (lg.pbp.length > 250) {
-                game.pbp = lg.pbp.slice(-250);
-              } else {
-                game.pbp = lg.pbp;
-              }
-
-              // Store game flow meta summary
-              if (lg.meta) {
-                game.metaSummary = {
-                  leadChanges: lg.meta.leadChanges,
-                  timesTied: lg.meta.timesTied,
-                  largestRunHome: lg.meta.largestRunHome,
-                  largestRunAway: lg.meta.largestRunAway
-                };
-              }
-
-              // Update team records
-              const homeTeam = teamById(game.homeTid);
-              const awayTeam = teamById(game.awayTid);
-              
-              if (lg.homeScore > lg.awayScore) {
-                homeTeam.wins += 1;
-                awayTeam.losses += 1;
-                homeTeam.homeWins += 1;
-                awayTeam.roadLosses += 1;
-              } else {
-                awayTeam.wins += 1;
-                homeTeam.losses += 1;
-                awayTeam.roadWins += 1;
-                homeTeam.homeLosses += 1;
-              }
-              
-              // Conference wins/losses
-              if (homeTeam.conf === awayTeam.conf) {
-                if (lg.homeScore > lg.awayScore) {
-                  homeTeam.confWins += 1;
-                  awayTeam.confLosses += 1;
-                } else {
-                  awayTeam.confWins += 1;
-                  homeTeam.confLosses += 1;
-                }
-              }
-              
-              // Update last10 and streak
-              for (const team of [homeTeam, awayTeam]) {
-                const result = (lg.homeScore > lg.awayScore && team.id === homeTeam.id) || (lg.awayScore > lg.homeScore && team.id === awayTeam.id) ? 'W' : 'L';
-                team.last10.push(result);
-                if (team.last10.length > 10) team.last10.shift();
-                
-                if (team.last10.length > 0) {
-                  const lastGame = team.last10[team.last10.length - 1];
-                  if (lastGame === team.streakType || team.streakType === "—") {
-                    team.streakType = lastGame;
-                    team.streakLen += 1;
-                  } else {
-                    team.streakType = lastGame;
-                    team.streakLen = 1;
-                  }
-                }
+            // If game is already final (naturally finished or sim'd), finalize and show result
+            if (lg && lg.isFinal) {
+              if (finalizeGameFromLive(lg)) {
+                showBanner("success", "✓ Game finalized");
               }
             }
-
-            state.ui.liveGameOpen = false;
-            state.ui.liveGame = null;
-            state.live.watch.isOpen = false;
+            
+            // Close modal and clear state
             await saveCurrentLeague();
+            closeWatchModal();
             render();
-            showBanner("success", "✓ Game saved");
+            
+            if (lg && lg.isFinal) {
+              showBanner("success", "✓ Game saved");
+            } else {
+              showBanner("info", "ℹ Watch session closed");
+            }
           }
         });
       }
