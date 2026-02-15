@@ -4067,7 +4067,7 @@
       if (clockEl) {
         if (lg.isFinal) {
           clockEl.textContent = "FINAL";
-          clockEl.style.color = "#ef4444";
+          clockEl.style.color = "#22c55e";
         } else {
           clockEl.textContent = `Q${lg.quarter} · ${formatClockTime(lg.clock)}`;
           clockEl.style.color = "#eab308";
@@ -6649,7 +6649,8 @@
               }
               // Finalize the game (write scores to schedule and update standings)
               if (finalizeGameFromLive(lg)) {
-                showBanner("success", "✓ Game finalized");
+                await saveCurrentLeague();
+                showBanner("success", "✓ Game finalized and saved");
               }
               updateWatchGameUI();
             }
