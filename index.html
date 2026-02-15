@@ -1204,8 +1204,10 @@
      * Schema Version History:
      *   v0: Original - implicit version if schemaVersion missing
      *   v1: Core structure (meta, teams, players, log)
+     *   v10: Schedule generation
+     *   v11: Lineup tracking system (possession-level aggregation)
      **********************/
-    const CURRENT_SCHEMA_VERSION = 10;
+    const CURRENT_SCHEMA_VERSION = 11;
     const inMemorySaves = [];
     const inMemoryLeagues = {};
 
@@ -2939,6 +2941,23 @@
             v = 10;
             league.schemaVersion = 10;
             console.log("[Migration] ✓ v9 → v10 complete");
+          
+          } else if (v === 10) {
+            // v10 → v11: Initialize lineups tracking system
+            console.log("[Migration] Applying v10 → v11: Initializing lineups tracking system");
+            
+            league.lineups = league.lineups || {};
+            league.teams = league.teams || [];
+            
+            league.teams.forEach(team => {
+              if (!league.lineups[team.id]) {
+                league.lineups[team.id] = {};
+              }
+            });
+            
+            v = 11;
+            league.schemaVersion = 11;
+            console.log("[Migration] ✓ v10 → v11 complete");
           }
           
           else {
@@ -3828,6 +3847,19 @@
       const homeTeam = teamById(game.homeTid);
       const awayTeam = teamById(game.awayTid);
       
+      // Get top 5 players by OVR for each team (starters)
+      const homePlayers = state.league.players
+        .filter(p => p.teamId === game.homeTid)
+        .sort((a, b) => b.ovr - a.ovr)
+        .slice(0, 5)
+        .map(p => p.id);
+      
+      const awayPlayers = state.league.players
+        .filter(p => p.teamId === game.awayTid)
+        .sort((a, b) => b.ovr - a.ovr)
+        .slice(0, 5)
+        .map(p => p.id);
+      
       return {
         gameId,
         season: state.league.meta.season,
@@ -3846,6 +3878,10 @@
         pbp: [],
         isFinal: false,
         isPlaying: false,
+        onCourt: {
+          home: homePlayers,
+          away: awayPlayers
+        },
         meta: {
           currentRunTeam: null,
           currentRunPts: 0,
@@ -3864,6 +3900,10 @@
      */
     function playNextPossession(liveGame) {
       if (liveGame.isFinal) return;
+      
+      // Snapshot scores at start of possession for aggregation tracking
+      const homeScoreBefore = liveGame.homeScore;
+      const awayScoreBefore = liveGame.awayScore;
       
       const offenseTid = liveGame.possession;
       const defenseTid = offenseTid === liveGame.homeTid ? liveGame.awayTid : liveGame.homeTid;
@@ -4165,6 +4205,33 @@
         }
       }
 
+      // Calculate score change and possession time
+      const homeScoreDelta = liveGame.homeScore - homeScoreBefore;
+      const awayScoreDelta = liveGame.awayScore - awayScoreBefore;
+      const dtSec = randInt(6, 24);
+      
+      // Determine which team scored (if any)
+      let scoringTeam = null;
+      let pointsScored = 0;
+      
+      if (homeScoreDelta > 0) {
+        scoringTeam = liveGame.homeTid;
+        pointsScored = homeScoreDelta;
+      } else if (awayScoreDelta > 0) {
+        scoringTeam = liveGame.awayTid;
+        pointsScored = awayScoreDelta;
+      }
+      
+      // Update lineup aggregates for this possession
+      updateLineupAggregates({
+        league: state.league,
+        liveGame,
+        scoringTeam,
+        points: pointsScored,
+        possTeam: offenseTid,
+        dtSec
+      });
+
       // Cap PBP size
       if (liveGame.pbp.length > 400) {
         liveGame.pbp = liveGame.pbp.slice(-250);
@@ -4249,6 +4316,84 @@
       }
       
       meta.lastLeader = leader;
+    }
+
+    /**
+     * Helper: Create consistent lineup key from 5 player IDs
+     * Input: Array of 5 player ID objects or strings
+     * Output: Sorted joined string "id1-id2-id3-id4-id5"
+     */
+    function lineupKeyFromFive(playerIds) {
+      return playerIds
+        .map(p => typeof p === 'object' ? p.id : p)
+        .sort()
+        .join('-');
+    }
+
+    /**
+     * Helper: Ensure lineup bucket exists for team
+     * Creates structure if missing: {poss: 0, secs: 0, ptsFor: 0, ptsAgainst: 0}
+     * Idempotent (safe to call repeatedly)
+     */
+    function ensureLineupBucket(league, teamId, lineupKey) {
+      if (!league.lineups) league.lineups = {};
+      if (!league.lineups[teamId]) league.lineups[teamId] = {};
+      if (!league.lineups[teamId][lineupKey]) {
+        league.lineups[teamId][lineupKey] = {
+          poss: 0,
+          secs: 0,
+          ptsFor: 0,
+          ptsAgainst: 0
+        };
+      }
+    }
+
+    /**
+     * Core Lineup Aggregation Function
+     * Called ONCE per possession to update lineup stats
+     * 
+     * Arguments:
+     *   league: state.league
+     *   liveGame: current game object
+     *   scoringTeam: teamId of scoring team (or null if no scoring)
+     *   points: points scored (0 if no scoring)
+     *   possTeam: teamId of team that possessed
+     *   dtSec: seconds elapsed in possession (6-24)
+     */
+    function updateLineupAggregates({league, liveGame, scoringTeam, points, possTeam, dtSec}) {
+      if (!liveGame.onCourt || !liveGame.onCourt.home || !liveGame.onCourt.away) {
+        console.warn("[updateLineupAggregates] onCourt not initialized");
+        return;
+      }
+
+      // Get both lineups on court this possession
+      const homeLineupKey = lineupKeyFromFive(liveGame.onCourt.home);
+      const awayLineupKey = lineupKeyFromFive(liveGame.onCourt.away);
+
+      // Ensure buckets exist
+      ensureLineupBucket(league, liveGame.homeTid, homeLineupKey);
+      ensureLineupBucket(league, liveGame.awayTid, awayLineupKey);
+
+      const homeLineup = league.lineups[liveGame.homeTid][homeLineupKey];
+      const awayLineup = league.lineups[liveGame.awayTid][awayLineupKey];
+
+      // Both lineups: increment possession and time
+      homeLineup.poss += 1;
+      homeLineup.secs += dtSec;
+      awayLineup.poss += 1;
+      awayLineup.secs += dtSec;
+
+      // Update scoring/defense stats based on which team scored
+      if (scoringTeam === liveGame.homeTid) {
+        // Home team scored
+        homeLineup.ptsFor += points;
+        awayLineup.ptsAgainst += points;
+      } else if (scoringTeam === liveGame.awayTid) {
+        // Away team scored
+        awayLineup.ptsFor += points;
+        homeLineup.ptsAgainst += points;
+      }
+      // If no scoring team (scoringTeam === null), just record the possession without scoring
     }
 
     /**
@@ -6597,18 +6742,25 @@
             const minMinsFilter = window._lineupsMinMins || 30;
             
             const lineupsArray = Object.entries(teamLineups)
-              .map(([key, data]) => ({
-                key,
-                playerIds: key.split('-'),
-                mins: data.mins || 0,
-                poss: data.poss || 0,
-                ptsFor: data.ptsFor || 0,
-                ptsAgainst: data.ptsAgainst || 0,
-                netRtg: data.poss > 0 ? (100 * (data.ptsFor - data.ptsAgainst) / data.poss).toFixed(1) : '0.0',
-                offRtg: data.poss > 0 ? (100 * data.ptsFor / data.poss).toFixed(1) : '0.0',
-                defRtg: data.poss > 0 ? (100 * data.ptsAgainst / data.poss).toFixed(1) : '0.0',
-                diff: data.ptsFor - data.ptsAgainst
-              }))
+              .map(([key, data]) => {
+                // Convert seconds to minutes (from Level 3 possession tracking)
+                // For backward compatibility with Level 2 data (which uses mins field), check both
+                const seconds = data.secs || 0;
+                const mins = data.mins !== undefined ? data.mins : (seconds > 0 ? seconds / 60 : 0);
+                
+                return {
+                  key,
+                  playerIds: key.split('-'),
+                  mins,
+                  poss: data.poss || 0,
+                  ptsFor: data.ptsFor || 0,
+                  ptsAgainst: data.ptsAgainst || 0,
+                  netRtg: data.poss > 0 ? (100 * (data.ptsFor - data.ptsAgainst) / data.poss).toFixed(1) : '0.0',
+                  offRtg: data.poss > 0 ? (100 * data.ptsFor / data.poss).toFixed(1) : '0.0',
+                  defRtg: data.poss > 0 ? (100 * data.ptsAgainst / data.poss).toFixed(1) : '0.0',
+                  diff: data.ptsFor - data.ptsAgainst
+                };
+              })
               .filter(l => l.mins >= minMinsFilter)
               .sort((a, b) => parseFloat(b.netRtg) - parseFloat(a.netRtg));
             
