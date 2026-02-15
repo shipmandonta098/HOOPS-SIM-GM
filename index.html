@@ -6366,33 +6366,40 @@
         const posFilter = window._statsPosFilter || 'all';
         const minGp = parseInt(window._statsMinGp || 0);
         const minMpg = parseInt(window._statsMinMpg || 0);
+        const splitKey = window._statsSplit || 'overall';
         
         return playersData
           .filter(p => {
-            const s = getStats(p);
-            if (s.gp === 0) return false;
+            const splitStats = (p.splits && p.splits[splitKey]) || getStats(p);
+            if (splitStats.gp === 0) return false;
             if (teamFilter !== 'all' && p.teamId !== teamFilter) return false;
             if (posFilter !== 'all' && p.pos !== posFilter) return false;
-            if (s.gp < minGp) return false;
-            const mpg = parseFloat(perGame(s.min, s.gp));
+            if (splitStats.gp < minGp) return false;
+            const mpg = parseFloat(perGame(splitStats.min, splitStats.gp));
             if (mpg < minMpg) return false;
             return true;
           })
           .map(p => {
-            const s = getStats(p);
+            const splitStats = (p.splits && p.splits[splitKey]) || getStats(p);
             const team = getTeam(p.teamId);
+            const efg = computeEFG(splitStats.fgm, splitStats.fga, splitStats.tpm) * 100;
+            const ts = computeTS(splitStats.pts, splitStats.fga, splitStats.fta) * 100;
+            const astto = computeASTTOV(splitStats.ast, splitStats.tov);
             return {
               ...p,
-              ppg: parseFloat(perGame(s.pts, s.gp)),
-              rpg: parseFloat(perGame(s.reb, s.gp)),
-              apg: parseFloat(perGame(s.ast, s.gp)),
-              spg: parseFloat(perGame(s.stl, s.gp)),
-              bpg: parseFloat(perGame(s.blk, s.gp)),
-              topg: parseFloat(perGame(s.tov, s.gp)),
-              mpg: parseFloat(perGame(s.min, s.gp)),
-              fgPct: percentage(s.fgm, s.fga),
-              tpPct: percentage(s.tpm, s.tpa),
-              ftPct: percentage(s.ftm, s.fta),
+              ppg: parseFloat(perGame(splitStats.pts, splitStats.gp)),
+              rpg: parseFloat(perGame(splitStats.reb, splitStats.gp)),
+              apg: parseFloat(perGame(splitStats.ast, splitStats.gp)),
+              spg: parseFloat(perGame(splitStats.stl, splitStats.gp)),
+              bpg: parseFloat(perGame(splitStats.blk, splitStats.gp)),
+              topg: parseFloat(perGame(splitStats.tov, splitStats.gp)),
+              mpg: parseFloat(perGame(splitStats.min, splitStats.gp)),
+              fgPct: percentage(splitStats.fgm, splitStats.fga),
+              tpPct: percentage(splitStats.tpm, splitStats.tpa),
+              ftPct: percentage(splitStats.ftm, splitStats.fta),
+              efgPct: efg.toFixed(1),
+              tsPct: ts.toFixed(1),
+              astto: astto.toFixed(2),
               teamAbbrev: team?.abbrev || '—'
             };
           })
@@ -6480,6 +6487,25 @@
           <div class="card">
             <div class="hd">👥 Player Stats</div>
             <div class="bd">
+              <!-- Splits and Stats Mode Selector -->
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px; padding-bottom:12px; border-bottom:1px solid var(--line);">
+                <div>
+                  <label style="font-size:12px; color:var(--muted); display:block; margin-bottom:6px; font-weight:600;">Stats Split</label>
+                  <div style="display:flex; gap:6px;">
+                    <button id="statsSplitOverall" style="flex:1; padding:8px; border:1px solid var(--line); border-radius:6px; background:rgba(96,165,250,.15); color:var(--accent); font-weight:600; cursor:pointer;">Overall</button>
+                    <button id="statsSplitHome" style="flex:1; padding:8px; border:1px solid var(--line); border-radius:6px; background:var(--panel2); color:var(--text); cursor:pointer;">Home</button>
+                    <button id="statsSplitAway" style="flex:1; padding:8px; border:1px solid var(--line); border-radius:6px; background:var(--panel2); color:var(--text); cursor:pointer;">Away</button>
+                  </div>
+                </div>
+                <div>
+                  <label style="font-size:12px; color:var(--muted); display:block; margin-bottom:6px; font-weight:600;">Stat Mode</label>
+                  <div style="display:flex; gap:6px;">
+                    <button id="statsModeBasic" style="flex:1; padding:8px; border:1px solid var(--line); border-radius:6px; background:rgba(96,165,250,.15); color:var(--accent); font-weight:600; cursor:pointer;">Basic</button>
+                    <button id="statsModeAdvanced" style="flex:1; padding:8px; border:1px solid var(--line); border-radius:6px; background:var(--panel2); color:var(--text); cursor:pointer;">Advanced</button>
+                  </div>
+                </div>
+              </div>
+              
               <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(120px, 1fr)); gap:12px; margin-bottom:16px;">
                 <div>
                   <label style="font-size:12px; color:var(--muted); display:block; margin-bottom:4px;">Team</label>
@@ -6527,6 +6553,9 @@
                       <th style="padding:10px; text-align:center; font-weight:600;">FG%</th>
                       <th style="padding:10px; text-align:center; font-weight:600;">3P%</th>
                       <th style="padding:10px; text-align:center; font-weight:600;">FT%</th>
+                      <th id="advStatsHeader" style="padding:10px; text-align:center; font-weight:600; color:#22d3ee; display:none;">eFG%</th>
+                      <th id="advStatsHeader2" style="padding:10px; text-align:center; font-weight:600; color:#22d3ee; display:none;">TS%</th>
+                      <th id="advStatsHeader3" style="padding:10px; text-align:center; font-weight:600; color:#a78bfa; display:none;">A:TO</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -6545,12 +6574,97 @@
                       <td style="padding:10px; text-align:center;">${p.fgPct}%</td>
                       <td style="padding:10px; text-align:center;">${p.tpPct}%</td>
                       <td style="padding:10px; text-align:center;">${p.ftPct}%</td>
+                      <td class="advStatsCell" style="padding:10px; text-align:center; color:#22d3ee; display:none; font-weight:600;">${p.efgPct}%</td>
+                      <td class="advStatsCell" style="padding:10px; text-align:center; color:#22d3ee; display:none; font-weight:600;">${p.tsPct}%</td>
+                      <td class="advStatsCell" style="padding:10px; text-align:center; color:#a78bfa; display:none; font-weight:600;">${p.astto}</td>
                     </tr>`).join('')}
                   </tbody>
                 </table>
               </div>
             </div>
           </div>
+          
+          <!-- LINEUPS -->${(() => {
+            // Ensure lineups are aggregated from all games
+            if (state.league.schedule && state.league.schedule.games) {
+              state.league.schedule.games.forEach(game => {
+                if (game.played) aggregateLineupsFromGame(game, teamsData);
+              });
+            }
+            
+            const userTeamId = state.userTeamId || (teamsData.length > 0 ? teamsData[0].id : null);
+            const teamLineups = userTeamId && state.league.lineups ? state.league.lineups[userTeamId] || {} : {};
+            const minMinsFilter = window._lineupsMinMins || 30;
+            
+            const lineupsArray = Object.entries(teamLineups)
+              .map(([key, data]) => ({
+                key,
+                playerIds: key.split('-'),
+                mins: data.mins || 0,
+                poss: data.poss || 0,
+                ptsFor: data.ptsFor || 0,
+                ptsAgainst: data.ptsAgainst || 0,
+                netRtg: data.poss > 0 ? (100 * (data.ptsFor - data.ptsAgainst) / data.poss).toFixed(1) : '0.0',
+                offRtg: data.poss > 0 ? (100 * data.ptsFor / data.poss).toFixed(1) : '0.0',
+                defRtg: data.poss > 0 ? (100 * data.ptsAgainst / data.poss).toFixed(1) : '0.0',
+                diff: data.ptsFor - data.ptsAgainst
+              }))
+              .filter(l => l.mins >= minMinsFilter)
+              .sort((a, b) => parseFloat(b.netRtg) - parseFloat(a.netRtg));
+            
+            return `
+          <div class="card">
+            <div class="hd">🏀 Lineups</div>
+            <div class="bd">
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:12px; margin-bottom:16px;">
+                <div>
+                  <label style="font-size:12px; color:var(--muted); display:block; margin-bottom:4px;">Team</label>
+                  <select id="lineupsTeamFilter" style="width:100%; padding:8px; background:var(--panel2); border:1px solid var(--line); border-radius:8px; color:var(--text); cursor:pointer; font-size:13px;">
+                    ${teamsData.map(t => `<option value="${t.id}" ${t.id === userTeamId ? 'selected' : ''}>${t.abbrev} ${t.name}</option>`).join('')}
+                  </select>
+                </div>
+                <div>
+                  <label style="font-size:12px; color:var(--muted); display:block; margin-bottom:4px;">Min Minutes</label>
+                  <input id="lineupsMinMins" type="number" min="0" value="30" style="width:100%; padding:8px; background:var(--panel2); border:1px solid var(--line); border-radius:8px; color:var(--text); font-size:13px;">
+                </div>
+              </div>
+              
+              <div style="overflow-x:auto;">
+                <table style="width:100%; border-collapse:collapse; font-size:12px;">
+                  <thead>
+                    <tr style="border-bottom:2px solid var(--line); background:rgba(96,165,250,.05);">
+                      <th style="padding:10px; text-align:left; font-weight:600;">Lineup (5 Players)</th>
+                      <th style="padding:10px; text-align:center; font-weight:600;">MIN</th>
+                      <th style="padding:10px; text-align:center; font-weight:600; color:var(--good);">+/-</th>
+                      <th style="padding:10px; text-align:center; font-weight:600; color:#22d3ee;">NetRtg</th>
+                      <th style="padding:10px; text-align:center; font-weight:600;">OffRtg</th>
+                      <th style="padding:10px; text-align:center; font-weight:600;">DefRtg</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${lineupsArray.length > 0 ? lineupsArray.map(l => {
+                      const playerNames = l.playerIds.map(pid => {
+                        const p = playersData.find(player => player.id === pid);
+                        return p ? `${p.firstName.charAt(0)}. ${p.lastName}` : pid.substring(0, 6);
+                      }).join(' / ');
+                      return `
+                      <tr style="border-bottom:1px solid var(--line); transition:.15s;" onmouseover="this.style.background='rgba(96,165,250,.05)'" onmouseout="this.style.background='transparent'">
+                        <td style="padding:10px; font-weight:500; font-size:11px;">${playerNames}</td>
+                        <td style="padding:10px; text-align:center;">${Math.round(l.mins)}</td>
+                        <td style="padding:10px; text-align:center; font-weight:600; color:${parseInt(l.diff) > 0 ? '#34d399' : parseInt(l.diff) < 0 ? '#f87171' : '#888'};">${l.diff}</td>
+                        <td style="padding:10px; text-align:center; font-weight:600; color:#22d3ee;">${l.netRtg}</td>
+                        <td style="padding:10px; text-align:center;">${l.offRtg}</td>
+                        <td style="padding:10px; text-align:center;">${l.defRtg}</td>
+                      </tr>
+                      `;
+                    }).join('') : '<tr><td colspan="6" style="padding:16px; text-align:center; color:var(--muted);">No lineups yet. Simulate some games first!</td></tr>'}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+            `;
+          })()}
         </div>
       `;
     }
@@ -7071,10 +7185,110 @@
 
       // STATS PAGE HANDLERS
       if (state.route === "stats") {
+        // Split buttons
+        const splitOverall = document.getElementById("statsSplitOverall");
+        const splitHome = document.getElementById("statsSplitHome");
+        const splitAway = document.getElementById("statsSplitAway");
+        
+        // Mode buttons
+        const modeBasic = document.getElementById("statsModeBasic");
+        const modeAdvanced = document.getElementById("statsModeAdvanced");
+        
+        // Filters
         const teamFilter = document.getElementById("statsTeamFilter");
         const posFilter = document.getElementById("statsPosFilter");
         const minGpInput = document.getElementById("statsMinGp");
         const minMpgInput = document.getElementById("statsMinMpg");
+        
+        // Lineups
+        const lineupsTeamFilter = document.getElementById("lineupsTeamFilter");
+        const lineupsMinMins = document.getElementById("lineupsMinMins");
+        
+        // Helper to update button styles
+        function updateSplitButtons() {
+          const split = window._statsSplit || 'overall';
+          [splitOverall, splitHome, splitAway].forEach(btn => {
+            if (!btn) return;
+            btn.style.background = 'var(--panel2)';
+            btn.style.color = 'var(--text)';
+          });
+          if (split === 'overall' && splitOverall) {
+            splitOverall.style.background = 'rgba(96,165,250,.15)';
+            splitOverall.style.color = 'var(--accent)';
+          } else if (split === 'home' && splitHome) {
+            splitHome.style.background = 'rgba(96,165,250,.15)';
+            splitHome.style.color = 'var(--accent)';
+          } else if (split === 'away' && splitAway) {
+            splitAway.style.background = 'rgba(96,165,250,.15)';
+            splitAway.style.color = 'var(--accent)';
+          }
+        }
+        
+        function updateModeButtons() {
+          const mode = window._statsMode || 'basic';
+          [modeBasic, modeAdvanced].forEach(btn => {
+            if (!btn) return;
+            btn.style.background = 'var(--panel2)';
+            btn.style.color = 'var(--text)';
+          });
+          if (mode === 'basic' && modeBasic) {
+            modeBasic.style.background = 'rgba(96,165,250,.15)';
+            modeBasic.style.color = 'var(--accent)';
+          } else if (mode === 'advanced' && modeAdvanced) {
+            modeAdvanced.style.background = 'rgba(96,165,250,.15)';
+            modeAdvanced.style.color = 'var(--accent)';
+          }
+        }
+        
+        function updateAdvStatsVisibility() {
+          const mode = window._statsMode || 'basic';
+          const headers = document.querySelectorAll('#advStatsHeader, #advStatsHeader2, #advStatsHeader3');
+          const cells = document.querySelectorAll('.advStatsCell');
+          if (mode === 'advanced') {
+            headers.forEach(h => h.style.display = 'block');
+            cells.forEach(c => c.style.display = 'block');
+          } else {
+            headers.forEach(h => h.style.display = 'none');
+            cells.forEach(c => c.style.display = 'none');
+          }
+        }
+        
+        if (splitOverall) {
+          splitOverall.addEventListener("click", () => {
+            window._statsSplit = 'overall';
+            updateSplitButtons();
+            render();
+          });
+        }
+        if (splitHome) {
+          splitHome.addEventListener("click", () => {
+            window._statsSplit = 'home';
+            updateSplitButtons();
+            render();
+          });
+        }
+        if (splitAway) {
+          splitAway.addEventListener("click", () => {
+            window._statsSplit = 'away';
+            updateSplitButtons();
+            render();
+          });
+        }
+        
+        if (modeBasic) {
+          modeBasic.addEventListener("click", () => {
+            window._statsMode = 'basic';
+            updateModeButtons();
+            updateAdvStatsVisibility();
+          });
+        }
+        if (modeAdvanced) {
+          modeAdvanced.addEventListener("click", () => {
+            window._statsMode = 'advanced';
+            updateModeButtons();
+            updateAdvStatsVisibility();
+          });
+        }
         
         if (teamFilter) {
           teamFilter.addEventListener("change", () => {
@@ -7100,12 +7314,30 @@
             render();
           });
         }
+        
+        if (lineupsTeamFilter) {
+          lineupsTeamFilter.addEventListener("change", () => {
+            window._lineupsTeamFilter = lineupsTeamFilter.value;
+            render();
+          });
+        }
+        if (lineupsMinMins) {
+          lineupsMinMins.addEventListener("change", () => {
+            window._lineupsMinMins = lineupsMinMins.value;
+            render();
+          });
+        }
 
         // Restore filter values from window variables
         if (teamFilter && window._statsTeamFilter) teamFilter.value = window._statsTeamFilter;
         if (posFilter && window._statsPosFilter) posFilter.value = window._statsPosFilter;
         if (minGpInput && window._statsMinGp) minGpInput.value = window._statsMinGp;
         if (minMpgInput && window._statsMinMpg) minMpgInput.value = window._statsMinMpg;
+        
+        // Update button styles and visibility
+        updateSplitButtons();
+        updateModeButtons();
+        updateAdvStatsVisibility();
       }
 
       // ROTATIONS PAGE HANDLERS
