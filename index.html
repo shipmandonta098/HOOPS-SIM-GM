@@ -1114,6 +1114,7 @@
         <a href="#rotations" data-route="rotations"><span>🧩 Rotations</span><span>›</span></a>
         <a href="#schedule" data-route="schedule"><span>🗓️ Schedule</span><span>›</span></a>
         <a href="#players" data-route="players"><span>🧑‍🦱 Players</span><span>›</span></a>
+        <a href="#stats" data-route="stats"><span>📈 Stats</span><span>›</span></a>
       </div>
 
       <div class="saves-section">
@@ -2438,7 +2439,7 @@
             salary,
             mood: randInt(40, 90),
             stamina: randInt(70, 100),
-            stats: { gp: 0, pts: 0, reb: 0, ast: 0 },
+            stats: { gp: 0, min: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 },
             // Bio fields
             heightIn: phys.heightIn,
             weightLb: phys.weightLb,
@@ -3607,6 +3608,38 @@
             team.streakType = lastGame;
             team.streakLen = 1;
           }
+        }
+      }
+
+      // Accumulate player stats
+      const allTeams = [homeTeam, awayTeam];
+      for (const team of allTeams) {
+        const isHome = team.id === game.homeTid;
+        const gameStats = isHome ? liveGame.homeStats : liveGame.awayStats;
+        
+        for (const playerId in gameStats) {
+          const player = state.league.players.find(p => p.id === playerId);
+          if (!player) continue;
+          
+          if (!player.stats) {
+            player.stats = { gp: 0, min: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 };
+          }
+          
+          const pStats = gameStats[playerId];
+          player.stats.gp += 1;
+          player.stats.pts += pStats.pts || 0;
+          player.stats.reb += pStats.reb || 0;
+          player.stats.ast += pStats.ast || 0;
+          player.stats.stl += pStats.stl || 0;
+          player.stats.blk += pStats.blk || 0;
+          player.stats.tov += pStats.tov || 0;
+          player.stats.fga += pStats.fga || 0;
+          player.stats.fgm += pStats.fgm || 0;
+          player.stats.tpa += pStats.tpa || 0;
+          player.stats.tpm += pStats.tpm || 0;
+          player.stats.fta += pStats.fta || 0;
+          player.stats.ftm += pStats.ftm || 0;
+          player.stats.min += pStats.min || 0;
         }
       }
 
@@ -6152,6 +6185,287 @@
       `;
     }
 
+    function viewStats() {
+      const teamsData = state.league.teams || [];
+      const playersData = state.league.players || [];
+      
+      // Helper to ensure stats object
+      function getStats(player) {
+        if (!player.stats) {
+          player.stats = { gp: 0, min: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 };
+        }
+        return player.stats;
+      }
+      
+      // Calculate per-game values
+      function perGame(value, gp) {
+        return gp > 0 ? (value / gp).toFixed(1) : "0.0";
+      }
+      
+      function percentage(made, attempt) {
+        return attempt > 0 ? ((made / attempt) * 100).toFixed(1) : "0.0";
+      }
+      
+      // Get team function
+      function getTeam(teamId) {
+        return teamsData.find(t => t.id === teamId);
+      }
+      
+      // LEAGUE LEADERS: Get top 10 for each stat
+      function getLeaders(statField, descriptor) {
+        return playersData
+          .filter(p => getStats(p).gp > 0)
+          .map(p => {
+            const s = getStats(p);
+            let value;
+            if (statField === 'ppg') value = parseFloat(perGame(s.pts, s.gp));
+            else if (statField === 'rpg') value = parseFloat(perGame(s.reb, s.gp));
+            else if (statField === 'apg') value = parseFloat(perGame(s.ast, s.gp));
+            else if (statField === 'spg') value = parseFloat(perGame(s.stl, s.gp));
+            else if (statField === 'bpg') value = parseFloat(perGame(s.blk, s.gp));
+            else if (statField === 'topg') value = parseFloat(perGame(s.tov, s.gp));
+            return { ...p, sortValue: value };
+          })
+          .sort((a, b) => b.sortValue - a.sortValue)
+          .slice(0, 10)
+          .map((p, i) => `
+            <div style="padding:8px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; cursor:pointer; transition:.15s;" class="playerRow" data-player-id="${p.id}" onmouseover="this.style.background='rgba(96,165,250,.1)'" onmouseout="this.style.background='transparent'">
+              <div style="flex:1;"><strong style="color:var(--good);">${i + 1}.</strong> ${p.firstName} ${p.lastName}</div>
+              <div style="flex:0.4; text-align:right; color:var(--muted); font-size:11px;">${getTeam(p.teamId)?.abbrev || '—'}</div>
+              <div style="flex:0.3; text-align:right; color:var(--accent); font-weight:600;">${p.sortValue.toFixed(1)}</div>
+            </div>
+          `)
+          .join('');
+      }
+      
+      // TEAM STATS
+      function getTeamStats() {
+        return teamsData
+          .map(team => {
+            const teamPlayers = playersData.filter(p => p.teamId === team.id);
+            const stats = teamPlayers.reduce((acc, p) => {
+              const ps = getStats(p);
+              return {
+                gp: Math.max(acc.gp, ps.gp),
+                pts: acc.pts + ps.pts,
+                reb: acc.reb + ps.reb,
+                ast: acc.ast + ps.ast,
+                tov: acc.tov + ps.tov,
+                fga: acc.fga + ps.fga,
+                fgm: acc.fgm + ps.fgm,
+                tpa: acc.tpa + ps.tpa,
+                tpm: acc.tpm + ps.tpm,
+                fta: acc.fta + ps.fta,
+                ftm: acc.ftm + ps.ftm
+              };
+            }, { gp: 0, pts: 0, reb: 0, ast: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 });
+            return {
+              ...team,
+              stats,
+              ppg: perGame(stats.pts, stats.gp),
+              fgPct: percentage(stats.fgm, stats.fga),
+              tpPct: percentage(stats.tpm, stats.tpa),
+              ftPct: percentage(stats.ftm, stats.fta)
+            };
+          })
+          .sort((a, b) => parseFloat(b.ppg) - parseFloat(a.ppg));
+      }
+      
+      // Filter and sort player stats
+      function getFilteredPlayers() {
+        const teamFilter = window._statsTeamFilter || 'all';
+        const posFilter = window._statsPosFilter || 'all';
+        const minGp = parseInt(window._statsMinGp || 0);
+        const minMpg = parseInt(window._statsMinMpg || 0);
+        
+        return playersData
+          .filter(p => {
+            const s = getStats(p);
+            if (s.gp === 0) return false;
+            if (teamFilter !== 'all' && p.teamId !== teamFilter) return false;
+            if (posFilter !== 'all' && p.pos !== posFilter) return false;
+            if (s.gp < minGp) return false;
+            const mpg = parseFloat(perGame(s.min, s.gp));
+            if (mpg < minMpg) return false;
+            return true;
+          })
+          .map(p => {
+            const s = getStats(p);
+            const team = getTeam(p.teamId);
+            return {
+              ...p,
+              ppg: parseFloat(perGame(s.pts, s.gp)),
+              rpg: parseFloat(perGame(s.reb, s.gp)),
+              apg: parseFloat(perGame(s.ast, s.gp)),
+              spg: parseFloat(perGame(s.stl, s.gp)),
+              bpg: parseFloat(perGame(s.blk, s.gp)),
+              topg: parseFloat(perGame(s.tov, s.gp)),
+              mpg: parseFloat(perGame(s.min, s.gp)),
+              fgPct: percentage(s.fgm, s.fga),
+              tpPct: percentage(s.tpm, s.tpa),
+              ftPct: percentage(s.ftm, s.fta),
+              teamAbbrev: team?.abbrev || '—'
+            };
+          })
+          .sort((a, b) => b.ppg - a.ppg);
+      }
+      
+      const teamStatsArray = getTeamStats();
+      const filteredPlayers = getFilteredPlayers();
+      
+      return `
+        <div style="padding:16px;">
+          <h2 style="margin:0 0 24px 0; display:flex; align-items:center; gap:8px;">📈 League Stats</h2>
+          
+          <!-- LEAGUE LEADERS -->
+          <div class="card" style="margin-bottom:24px;">
+            <div class="hd">🏆 League Leaders</div>
+            <div class="bd">
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:16px;">
+                <div style="border:1px solid rgba(96,165,250,.2); border-radius:10px; padding:12px; background:rgba(96,165,250,.03);">
+                  <div style="font-weight:600; margin-bottom:12px; color:var(--accent); font-size:13px;">Points Per Game</div>
+                  ${getLeaders('ppg', 'PPG')}
+                </div>
+                <div style="border:1px solid rgba(52,211,153,.2); border-radius:10px; padding:12px; background:rgba(52,211,153,.03);">
+                  <div style="font-weight:600; margin-bottom:12px; color:var(--good); font-size:13px;">Rebounds Per Game</div>
+                  ${getLeaders('rpg', 'RPG')}
+                </div>
+                <div style="border:1px solid rgba(34,211,238,.2); border-radius:10px; padding:12px; background:rgba(34,211,238,.03);">
+                  <div style="font-weight:600; margin-bottom:12px; color:#22d3ee; font-size:13px;">Assists Per Game</div>
+                  ${getLeaders('apg', 'APG')}
+                </div>
+                <div style="border:1px solid rgba(248,113,113,.2); border-radius:10px; padding:12px; background:rgba(248,113,113,.03);">
+                  <div style="font-weight:600; margin-bottom:12px; color:var(--bad); font-size:13px;">Steals Per Game</div>
+                  ${getLeaders('spg', 'SPG')}
+                </div>
+                <div style="border:1px solid rgba(251,191,36,.2); border-radius:10px; padding:12px; background:rgba(251,191,36,.03);">
+                  <div style="font-weight:600; margin-bottom:12px; color:var(--warn); font-size:13px;">Blocks Per Game</div>
+                  ${getLeaders('bpg', 'BPG')}
+                </div>
+                <div style="border:1px solid rgba(156,163,175,.2); border-radius:10px; padding:12px; background:rgba(156,163,175,.03);">
+                  <div style="font-weight:600; margin-bottom:12px; color:var(--muted); font-size:13px;">Turnovers Per Game</div>
+                  ${getLeaders('topg', 'TOPG')}
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- TEAM STATS -->
+          <div class="card" style="margin-bottom:24px;">
+            <div class="hd">🏢 Team Stats</div>
+            <div class="bd" style="overflow-x:auto;">
+              <table style="width:100%; border-collapse:collapse; font-size:13px;">
+                <thead>
+                  <tr style="border-bottom:2px solid var(--line); background:rgba(96,165,250,.05);">
+                    <th style="padding:10px; text-align:left; font-weight:600;">Team</th>
+                    <th style="padding:10px; text-align:center; font-weight:600;">GP</th>
+                    <th style="padding:10px; text-align:center; font-weight:600; color:var(--good);">PPG</th>
+                    <th style="padding:10px; text-align:center; font-weight:600;">FG%</th>
+                    <th style="padding:10px; text-align:center; font-weight:600;">3P%</th>
+                    <th style="padding:10px; text-align:center; font-weight:600;">FT%</th>
+                    <th style="padding:10px; text-align:center; font-weight:600;">REB</th>
+                    <th style="padding:10px; text-align:center; font-weight:600;">AST</th>
+                    <th style="padding:10px; text-align:center; font-weight:600;">TOV</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${teamStatsArray.map(t => `
+                    <tr style="border-bottom:1px solid var(--line); transition:.15s;" onmouseover="this.style.background='rgba(96,165,250,.05)'" onmouseout="this.style.background='transparent'">
+                      <td style="padding:10px; font-weight:600;">${t.abbrev} ${t.name}</td>
+                      <td style="padding:10px; text-align:center;">${t.stats.gp}</td>
+                      <td style="padding:10px; text-align:center; color:var(--good); font-weight:600;">${t.ppg}</td>
+                      <td style="padding:10px; text-align:center;">${t.fgPct}%</td>
+                      <td style="padding:10px; text-align:center;">${t.tpPct}%</td>
+                      <td style="padding:10px; text-align:center;">${t.ftPct}%</td>
+                      <td style="padding:10px; text-align:center;">${perGame(t.stats.reb, t.stats.gp)}</td>
+                      <td style="padding:10px; text-align:center;">${perGame(t.stats.ast, t.stats.gp)}</td>
+                      <td style="padding:10px; text-align:center; color:var(--bad);">${perGame(t.stats.tov, t.stats.gp)}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          
+          <!-- PLAYER STATS -->
+          <div class="card">
+            <div class="hd">👥 Player Stats</div>
+            <div class="bd">
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(120px, 1fr)); gap:12px; margin-bottom:16px;">
+                <div>
+                  <label style="font-size:12px; color:var(--muted); display:block; margin-bottom:4px;">Team</label>
+                  <select id="statsTeamFilter" style="width:100%; padding:8px; background:var(--panel2); border:1px solid var(--line); border-radius:8px; color:var(--text); cursor:pointer; font-size:13px;">
+                    <option value="all">All Teams</option>
+                    ${teamsData.map(t => `<option value="${t.id}">${t.abbrev}</option>`).join('')}
+                  </select>
+                </div>
+                <div>
+                  <label style="font-size:12px; color:var(--muted); display:block; margin-bottom:4px;">Position</label>
+                  <select id="statsPosFilter" style="width:100%; padding:8px; background:var(--panel2); border:1px solid var(--line); border-radius:8px; color:var(--text); cursor:pointer; font-size:13px;">
+                    <option value="all">All Positions</option>
+                    <option value="PG">PG - Point Guard</option>
+                    <option value="SG">SG - Shooting Guard</option>
+                    <option value="SF">SF - Small Forward</option>
+                    <option value="PF">PF - Power Forward</option>
+                    <option value="C">C - Center</option>
+                  </select>
+                </div>
+                <div>
+                  <label style="font-size:12px; color:var(--muted); display:block; margin-bottom:4px;">Min GP</label>
+                  <input id="statsMinGp" type="number" min="0" value="0" style="width:100%; padding:8px; background:var(--panel2); border:1px solid var(--line); border-radius:8px; color:var(--text); font-size:13px;">
+                </div>
+                <div>
+                  <label style="font-size:12px; color:var(--muted); display:block; margin-bottom:4px;">Min MPG</label>
+                  <input id="statsMinMpg" type="number" min="0" value="0" style="width:100%; padding:8px; background:var(--panel2); border:1px solid var(--line); border-radius:8px; color:var(--text); font-size:13px;">
+                </div>
+              </div>
+              
+              <div style="overflow-x:auto;">
+                <table id="playerStatsTable" style="width:100%; border-collapse:collapse; font-size:12px;">
+                  <thead>
+                    <tr style="border-bottom:2px solid var(--line); background:rgba(96,165,250,.05); position:sticky; top:0;">
+                      <th style="padding:10px; text-align:left; font-weight:600;">Player</th>
+                      <th style="padding:10px; text-align:center; font-weight:600;">Team</th>
+                      <th style="padding:10px; text-align:center; font-weight:600;">Pos</th>
+                      <th style="padding:10px; text-align:center; font-weight:600;">GP</th>
+                      <th style="padding:10px; text-align:center; font-weight:600;">MPG</th>
+                      <th style="padding:10px; text-align:center; font-weight:600; color:var(--good);">PPG</th>
+                      <th style="padding:10px; text-align:center; font-weight:600;">RPG</th>
+                      <th style="padding:10px; text-align:center; font-weight:600;">APG</th>
+                      <th style="padding:10px; text-align:center; font-weight:600;">SPG</th>
+                      <th style="padding:10px; text-align:center; font-weight:600;">BPG</th>
+                      <th style="padding:10px; text-align:center; font-weight:600;">TOPG</th>
+                      <th style="padding:10px; text-align:center; font-weight:600;">FG%</th>
+                      <th style="padding:10px; text-align:center; font-weight:600;">3P%</th>
+                      <th style="padding:10px; text-align:center; font-weight:600;">FT%</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${filteredPlayers.map(p => `<tr style="border-bottom:1px solid var(--line); cursor:pointer; transition:.15s;" class="playerRow" data-player-id="${p.id}" onmouseover="this.style.background='rgba(96,165,250,.05)'" onmouseout="this.style.background='transparent'">
+                      <td style="padding:10px; font-weight:500;">${p.firstName} ${p.lastName}</td>
+                      <td style="padding:10px; text-align:center; font-size:11px; color:var(--muted);">${p.teamAbbrev}</td>
+                      <td style="padding:10px; text-align:center; font-size:11px; color:var(--muted);">${p.pos}</td>
+                      <td style="padding:10px; text-align:center;">${getStats(p).gp}</td>
+                      <td style="padding:10px; text-align:center;">${p.mpg.toFixed(1)}</td>
+                      <td style="padding:10px; text-align:center; color:var(--good); font-weight:600;">${p.ppg.toFixed(1)}</td>
+                      <td style="padding:10px; text-align:center;">${p.rpg.toFixed(1)}</td>
+                      <td style="padding:10px; text-align:center;">${p.apg.toFixed(1)}</td>
+                      <td style="padding:10px; text-align:center;">${p.spg.toFixed(1)}</td>
+                      <td style="padding:10px; text-align:center;">${p.bpg.toFixed(1)}</td>
+                      <td style="padding:10px; text-align:center;">${p.topg.toFixed(1)}</td>
+                      <td style="padding:10px; text-align:center;">${p.fgPct}%</td>
+                      <td style="padding:10px; text-align:center;">${p.tpPct}%</td>
+                      <td style="padding:10px; text-align:center;">${p.ftPct}%</td>
+                    </tr>`).join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
     function viewPlayers() {
       const players = [...state.league.players].sort((a,b)=>b.ovr-a.ovr);
       return `
@@ -6517,6 +6831,7 @@
         else if (state.route === "rotations") view.innerHTML = viewRotations();
         else if (state.route === "schedule") view.innerHTML = viewSchedule();
         else if (state.route === "players") view.innerHTML = viewPlayers();
+        else if (state.route === "stats") view.innerHTML = viewStats();
         else view.innerHTML = `<div class="card"><div class="bd">Unknown route.</div></div>`;
       }
 
@@ -6664,6 +6979,45 @@
         }
       };
       document.addEventListener("keydown", handleEscape);
+
+      // STATS PAGE HANDLERS
+      if (state.route === "stats") {
+        const teamFilter = document.getElementById("statsTeamFilter");
+        const posFilter = document.getElementById("statsPosFilter");
+        const minGpInput = document.getElementById("statsMinGp");
+        const minMpgInput = document.getElementById("statsMinMpg");
+        
+        if (teamFilter) {
+          teamFilter.addEventListener("change", () => {
+            window._statsTeamFilter = teamFilter.value;
+            render();
+          });
+        }
+        if (posFilter) {
+          posFilter.addEventListener("change", () => {
+            window._statsPosFilter = posFilter.value;
+            render();
+          });
+        }
+        if (minGpInput) {
+          minGpInput.addEventListener("change", () => {
+            window._statsMinGp = minGpInput.value;
+            render();
+          });
+        }
+        if (minMpgInput) {
+          minMpgInput.addEventListener("change", () => {
+            window._statsMinMpg = minMpgInput.value;
+            render();
+          });
+        }
+
+        // Restore filter values from window variables
+        if (teamFilter && window._statsTeamFilter) teamFilter.value = window._statsTeamFilter;
+        if (posFilter && window._statsPosFilter) posFilter.value = window._statsPosFilter;
+        if (minGpInput && window._statsMinGp) minGpInput.value = window._statsMinGp;
+        if (minMpgInput && window._statsMinMpg) minMpgInput.value = window._statsMinMpg;
+      }
 
       // ROTATIONS PAGE HANDLERS
       if (state.route === "rotations" && state.userTeamId) {
