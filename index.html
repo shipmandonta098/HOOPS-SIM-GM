@@ -3215,6 +3215,7 @@
       selectedPlayerId: null,
       userTeamId: null,
       saves: [],
+      simulating: false,
       ui: {
         playerModalOpen: false,
         playerModalId: null,
@@ -4818,6 +4819,122 @@
       render();
     }
 
+    /**
+     * Update simulation button states and loading indicator
+     */
+    function updateSimButtonStates() {
+      const isSimulating = state.simulating || false;
+      const buttons = [
+        document.getElementById("simTodayBtn"),
+        document.getElementById("simWeekBtn"),
+        document.getElementById("simMonthBtn"),
+        document.getElementById("simSeasonBtn")
+      ];
+      
+      buttons.forEach(btn => {
+        if (btn) {
+          btn.disabled = isSimulating;
+          btn.style.opacity = isSimulating ? "0.5" : "1";
+          btn.style.cursor = isSimulating ? "not-allowed" : "pointer";
+        }
+      });
+
+      const indicator = document.getElementById("simLoadingIndicator");
+      if (indicator) {
+        indicator.style.display = isSimulating ? "flex" : "none";
+      }
+    }
+
+    /**
+     * Simulate up to 7 days
+     */
+    async function simulateWeek() {
+      if (state.simulating) return;
+      state.simulating = true;
+
+      const startDay = state.league.meta.day;
+      const maxDays = Math.min(7, state.league.schedule.maxDays - startDay + 1);
+
+      for (let i = 0; i < maxDays; i++) {
+        simDay();
+        
+        // Stop early if season ended
+        if (state.league.meta.day === 1 && i < maxDays - 1) {
+          state.league.log.unshift(`Week simulation stopped: Season advanced`);
+          break;
+        }
+      }
+
+      await saveCurrentLeague();
+      state.simulating = false;
+      render();
+      showBanner("success", `✓ Simulated week (days ${startDay}-${state.league.meta.day - 1})`);
+    }
+
+    /**
+     * Simulate up to 30 days
+     */
+    async function simulateMonth() {
+      if (state.simulating) return;
+      state.simulating = true;
+
+      const startDay = state.league.meta.day;
+      const maxDays = Math.min(30, state.league.schedule.maxDays - startDay + 1);
+
+      for (let i = 0; i < maxDays; i++) {
+        simDay();
+        
+        // Stop early if season ended
+        if (state.league.meta.day === 1 && i < maxDays - 1) {
+          state.league.log.unshift(`Month simulation stopped: Season advanced`);
+          break;
+        }
+      }
+
+      await saveCurrentLeague();
+      state.simulating = false;
+      render();
+      showBanner("success", `✓ Simulated month (days ${startDay}-${state.league.meta.day - 1})`);
+    }
+
+    /**
+     * Simulate entire season
+     */
+    async function simulateSeason() {
+      if (state.simulating) return;
+      state.simulating = true;
+
+      const { meta, schedule } = state.league;
+      const startSeason = meta.season;
+      let daysSimmed = 0;
+
+      // Simulate all remaining regular season days
+      while (daysSimmed < 500) { // Safety limit
+        const todayGames = schedule && schedule.games
+          ? schedule.games.filter(g => g.day === meta.day && !g.played)
+          : [];
+
+        if (todayGames.length > 0 || meta.day <= schedule.maxDays) {
+          simDay();
+          daysSimmed++;
+          
+          // Check if we've moved to a new season (regular season ended)
+          if (meta.season > startSeason) {
+            state.league.log.unshift(`Regular season complete. Season advanced to ${meta.season}`);
+            break;
+          }
+        } else {
+          // No more games scheduled
+          break;
+        }
+      }
+
+      await saveCurrentLeague();
+      state.simulating = false;
+      render();
+      showBanner("success", `✓ Simulated season (${daysSimmed} days)`);
+    }
+
     // Debounced autosave
     function debounceAutoSave() {
       clearTimeout(debounceAutoSave._t);
@@ -5788,10 +5905,23 @@
             </div>
             
             <div class="card" style="grid-column: 1 / -1;">
-              <div class="bd">
+              <div class="bd" style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
                 <button id="simTodayBtn" class="btn" style="background: #22c55e; padding: 12px 24px; font-size: 14px; font-weight: 600;">
                   ▶ Simulate Today (${todayGames.length} games)
                 </button>
+                <button id="simWeekBtn" class="btn" style="background: #22c55e; padding: 12px 24px; font-size: 14px; font-weight: 600;">
+                  ▶ Simulate Week
+                </button>
+                <button id="simMonthBtn" class="btn" style="background: #22c55e; padding: 12px 24px; font-size: 14px; font-weight: 600;">
+                  ▶ Simulate Month
+                </button>
+                <button id="simSeasonBtn" class="btn" style="background: #22c55e; padding: 12px 24px; font-size: 14px; font-weight: 600;">
+                  ▶ Simulate Season
+                </button>
+                <div id="simLoadingIndicator" style="display: none; align-items: center; gap: 8px; color: #60a5fa; font-weight: 600;">
+                  <span style="animation: spin 1s linear infinite; display: inline-block;">⟳</span>
+                  Simulating...
+                </div>
               </div>
             </div>
           ` : ''}
@@ -6710,10 +6840,65 @@
         const simTodayBtn = document.getElementById("simTodayBtn");
         if (simTodayBtn) {
           simTodayBtn.addEventListener("click", async () => {
+            if (state.simulating) return;
+            state.simulating = true;
+            updateSimButtonStates();
+            
             simDay();
             await saveCurrentLeague();
+            
+            state.simulating = false;
+            updateSimButtonStates();
             render();
             showBanner("success", `✓ Simulated day ${state.league.meta.day}`);
+          });
+        }
+
+        // Simulate Week button
+        const simWeekBtn = document.getElementById("simWeekBtn");
+        if (simWeekBtn) {
+          simWeekBtn.addEventListener("click", async () => {
+            if (state.simulating) return;
+            state.simulating = true;
+            updateSimButtonStates();
+            
+            await simulateWeek();
+            
+            state.simulating = false;
+            updateSimButtonStates();
+            render();
+          });
+        }
+
+        // Simulate Month button
+        const simMonthBtn = document.getElementById("simMonthBtn");
+        if (simMonthBtn) {
+          simMonthBtn.addEventListener("click", async () => {
+            if (state.simulating) return;
+            state.simulating = true;
+            updateSimButtonStates();
+            
+            await simulateMonth();
+            
+            state.simulating = false;
+            updateSimButtonStates();
+            render();
+          });
+        }
+
+        // Simulate Season button
+        const simSeasonBtn = document.getElementById("simSeasonBtn");
+        if (simSeasonBtn) {
+          simSeasonBtn.addEventListener("click", async () => {
+            if (state.simulating) return;
+            state.simulating = true;
+            updateSimButtonStates();
+            
+            await simulateSeason();
+            
+            state.simulating = false;
+            updateSimButtonStates();
+            render();
           });
         }
 
