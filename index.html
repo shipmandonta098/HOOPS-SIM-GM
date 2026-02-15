@@ -1208,7 +1208,17 @@
      *   v11: Lineup tracking system (possession-level aggregation)
      *   v12: Team opponent stats tracking (oppPts, oppFGM/A, etc.)
      **********************/
-    const CURRENT_SCHEMA_VERSION = 13;
+    const CURRENT_SCHEMA_VERSION = 14;
+
+    // Calibration multipliers for realistic stat environment
+    const CALIBRATION = {
+      shotMakeFactor: 1.0,   // Adjust shooting make %
+      turnoverFactor: 1.0,   // Adjust TO rate
+      foulFactor: 1.0,       // Adjust fouls
+      blockFactor: 1.0,      // Adjust blocks
+      stealFactor: 1.0,      // Adjust steals
+      oRebFactor: 1.0        // Adjust offensive rebound chance
+    };
     const inMemorySaves = [];
     const inMemoryLeagues = {};
 
@@ -1234,6 +1244,198 @@
     }
     function safePct(m, a) { 
       return a > 0 ? (m / a * 100) : 0; 
+    }
+
+    // Integer attribute helpers
+    function clampInt(value, min = 25, max = 99) {
+      return Math.max(min, Math.min(max, Math.round(value)));
+    }
+
+    function formatAttr(value) {
+      return Number.isFinite(value) ? Math.round(value) : 0;
+    }
+
+    // ARCHETYPE MODIFIERS TABLE - Centralized stat multipliers by archetype
+    const archetypeMods = {
+      'Glass Cleaner': {
+        rebWeightMult: 1.25, orebBonus: 0.08, blkWeightMult: 0.90, blkProbBonus: 0, 
+        tovProbMult: 1.10, stlWeightMult: 0.85, astProbBonus: -0.05
+      },
+      'Rim Protector': {
+        rebWeightMult: 1.10, orebBonus: 0.03, blkWeightMult: 1.30, blkProbBonus: 0.03,
+        tovProbMult: 1.0, stlWeightMult: 0.90, astProbBonus: 0
+      },
+      'Lockdown Defender': {
+        rebWeightMult: 1.0, orebBonus: 0, blkWeightMult: 1.05, blkProbBonus: 0.01,
+        tovProbMult: 0.95, stlWeightMult: 1.20, astProbBonus: -0.03
+      },
+      'Playmaker': {
+        rebWeightMult: 0.90, orebBonus: 0, blkWeightMult: 0.85, blkProbBonus: 0,
+        tovProbMult: 1.15, stlWeightMult: 0.95, astProbBonus: 0.10
+      },
+      'Slasher': {
+        rebWeightMult: 1.05, orebBonus: 0.05, blkWeightMult: 0.95, blkProbBonus: 0,
+        tovProbMult: 1.08, stlWeightMult: 0.90, astProbBonus: 0.02
+      },
+      '3&D': {
+        rebWeightMult: 1.0, orebBonus: 0, blkWeightMult: 1.0, blkProbBonus: 0.01,
+        tovProbMult: 0.98, stlWeightMult: 1.05, astProbBonus: 0
+      },
+      'Shot Creator': {
+        rebWeightMult: 0.95, orebBonus: 0, blkWeightMult: 0.90, blkProbBonus: 0,
+        tovProbMult: 1.12, stlWeightMult: 0.92, astProbBonus: 0.03
+      },
+      'Floor Spacer': {
+        rebWeightMult: 0.90, orebBonus: 0, blkWeightMult: 0.85, blkProbBonus: -0.01,
+        tovProbMult: 1.0, stlWeightMult: 0.88, astProbBonus: 0.05
+      },
+      'Two-Way': {
+        rebWeightMult: 1.0, orebBonus: 0, blkWeightMult: 1.0, blkProbBonus: 0,
+        tovProbMult: 1.0, stlWeightMult: 1.0, astProbBonus: 0
+      }
+    };
+
+    function getArchetypeMods(archetype) {
+      return archetypeMods[archetype] || archetypeMods['Two-Way'];
+    }
+
+    /**
+     * Generate player tendencies (0–100 integers) based on position, archetype, and ratings
+     * Tendencies control attempt frequency, not skill
+     */
+    function generatePlayerTendencies(pos, archetype, ratings) {
+      const r = ratings || {};
+      
+      // Position-based defaults
+      let tendencies = {
+        shot3Freq: 25,      // 3-point attempt frequency
+        shotMidFreq: 30,    // Mid-range
+        shotRimFreq: 30,    // Rim/layup
+        passFreq: 20,       // Pass frequency
+        driveFreq: 25,      // Drive frequency
+        foulDrawFreq: 15,   // Foul draw frequency
+        stealFreq: 50,      // Steal aggression
+        blockFreq: 50,      // Block aggression
+        offRebFreq: 50,     // Offensive rebound chase
+        defRebFreq: 50,     // Defensive rebound chase
+        turnoverRisk: 50,   // Turnover risk
+        usage: 50           // Usage rate (attempt frequency)
+      };
+
+      // Position adjustments
+      if (pos === "PG") {
+        tendencies.shot3Freq = 35;
+        tendencies.shotMidFreq = 25;
+        tendencies.shotRimFreq = 20;
+        tendencies.passFreq = 40;
+        tendencies.driveFreq = 35;
+        tendencies.offRebFreq = 20;
+        tendencies.defRebFreq = 35;
+        tendencies.usage = 55;
+      } else if (pos === "SG") {
+        tendencies.shot3Freq = 40;
+        tendencies.shotMidFreq = 35;
+        tendencies.shotRimFreq = 20;
+        tendencies.passFreq = 15;
+        tendencies.driveFreq = 25;
+        tendencies.offRebFreq = 15;
+        tendencies.defRebFreq = 30;
+        tendencies.usage = 60;
+      } else if (pos === "SF") {
+        tendencies.shot3Freq = 35;
+        tendencies.shotMidFreq = 30;
+        tendencies.shotRimFreq = 25;
+        tendencies.passFreq = 20;
+        tendencies.driveFreq = 25;
+        tendencies.offRebFreq = 35;
+        tendencies.defRebFreq = 45;
+        tendencies.usage = 50;
+      } else if (pos === "PF") {
+        tendencies.shot3Freq = 20;
+        tendencies.shotMidFreq: 30;
+        tendencies.shotRimFreq = 40;
+        tendencies.passFreq = 15;
+        tendencies.driveFreq = 20;
+        tendencies.offRebFreq = 60;
+        tendencies.defRebFreq = 60;
+        tendencies.usage = 45;
+        tendencies.blockFreq = 70;
+      } else { // C
+        tendencies.shot3Freq = 10;
+        tendencies.shotMidFreq = 25;
+        tendencies.shotRimFreq = 50;
+        tendencies.passFreq = 10;
+        tendencies.driveFreq = 15;
+        tendencies.offRebFreq = 70;
+        tendencies.defRebFreq = 70;
+        tendencies.usage = 40;
+        tendencies.blockFreq = 75;
+      }
+
+      // Archetype modifiers
+      if (archetype === "Playmaker") {
+        tendencies.passFreq = Math.min(100, tendencies.passFreq + 20);
+        tendencies.usage = Math.max(0, tendencies.usage - 5);
+      } else if (archetype === "Shot Creator") {
+        tendencies.usage = Math.min(100, tendencies.usage + 15);
+        tendencies.passFreq = Math.max(0, tendencies.passFreq - 10);
+      } else if (archetype === "Glass Cleaner") {
+        tendencies.offRebFreq = Math.min(100, tendencies.offRebFreq + 25);
+        tendencies.defRebFreq = Math.min(100, tendencies.defRebFreq + 20);
+      } else if (archetype === "Rim Protector") {
+        tendencies.blockFreq = Math.min(100, tendencies.blockFreq + 30);
+      } else if (archetype === "Lockdown Defender") {
+        tendencies.stealFreq = Math.min(100, tendencies.stealFreq + 25);
+        tendencies.turnoverRisk = Math.max(0, tendencies.turnoverRisk - 15);
+      } else if (archetype === "3&D") {
+        tendencies.shot3Freq = Math.min(100, tendencies.shot3Freq + 15);
+        tendencies.stealFreq = Math.min(100, tendencies.stealFreq + 10);
+      }
+
+      // Rating-based adjustments
+      const pass = n0((r.pas || 50) / 100);
+      const fin = n0((r.fin || 50) / 100);
+      const tp = n0((r.tp || 50) / 100);
+      const mid = n0((r.mid || 50) / 100);
+      const reb = n0((r.reb || 50) / 100);
+      const stl = n0((r.stl || 50) / 100);
+      const blk = n0((r.blk || 50) / 100);
+
+      if (pass > 0.7) tendencies.passFreq = Math.min(100, tendencies.passFreq + 15);
+      if (tp > 0.7) tendencies.shot3Freq = Math.min(100, tendencies.shot3Freq + 20);
+      if (mid > 0.7) tendencies.shotMidFreq = Math.min(100, tendencies.shotMidFreq + 15);
+      if (fin > 0.7) tendencies.shotRimFreq = Math.min(100, tendencies.shotRimFreq + 20);
+      if (reb > 0.7) {
+        tendencies.offRebFreq = Math.min(100, tendencies.offRebFreq + 15);
+        tendencies.defRebFreq = Math.min(100, tendencies.defRebFreq + 15);
+      }
+      if (stl > 0.7) tendencies.stealFreq = Math.min(100, tendencies.stealFreq + 20);
+      if (blk > 0.7) tendencies.blockFreq = Math.min(100, tendencies.blockFreq + 20);
+
+      // Clamp all to 0–100
+      Object.keys(tendencies).forEach(key => {
+        tendencies[key] = clampInt(tendencies[key], 0, 100);
+      });
+
+      return tendencies;
+    }
+
+    /**
+     * Generate team style/tendencies (0–100 integers)
+     */
+    function generateTeamStyle(teamId) {
+      const roster = state.league.players.filter(p => p.teamId === teamId);
+      const avgOVR = roster.length > 0 ? roster.reduce((s, p) => s + p.ovr, 0) / roster.length : 75;
+      
+      return {
+        pace: clampInt(Math.round(avgOVR * 0.9 + randInt(-10, 10)), 80, 110),         // Possessions per game
+        threeRate: clampInt(Math.round(35 + randInt(-8, 8)), 20, 50),                 // % of FGA that are 3s
+        rimRate: clampInt(Math.round(35 + randInt(-8, 8)), 20, 50),                   // % of FGA at rim
+        midRate: clampInt(Math.round(30 + randInt(-8, 8)), 15, 45),                   // % of FGA mid-range
+        passRate: clampInt(Math.round(50 + randInt(-10, 10)), 30, 70),                // Assist tendency
+        crashOReb: clampInt(Math.round(50 + randInt(-15, 15)), 20, 80),               // Offensive rebound chase
+        pressureDefense: clampInt(Math.round(50 + randInt(-15, 15)), 20, 80)          // Defensive pressure/steals
+      };
     }
 
     // Bio generation data
@@ -1584,9 +1786,9 @@
         ratings.stl = rollRating(ovr - 3, variance);
       }
 
-      // Ensure all ratings are in valid range
+      // Ensure all ratings are in valid range AND are integers
       for (let key in ratings) {
-        ratings[key] = clamp(ratings[key], 20, 100);
+        ratings[key] = clampInt(ratings[key], 25, 99);
       }
 
       return ratings;
@@ -2414,7 +2616,7 @@
       { name: "Washington Dynasty", abbrev: "WAS", market_size: "Medium", conference: "Eastern", division: "Atlantic", color: "#002b5c" },
     ];
 
-    function generatePlayersForTeams(teams, playersPerTeam = 8) {
+    function generatePlayersForTeams(teams, playersPerTeam = 15) {
       const players = [];
 
       let playerIdx = 0;
@@ -2483,6 +2685,9 @@
           const archetype = computeArchetype(player);
           player.archetype = archetype.primary;
           player.archetypeTags = archetype.tags;
+
+          // Generate player tendencies based on position, archetype, and ratings
+          player.tendencies = generatePlayerTendencies(pos, player.archetype, ratings);
 
           // Generate personality
           player.personality = generatePersonality(player.pos, region);
@@ -2659,6 +2864,9 @@
           oppPts: 0, oppFGM: 0, oppFGA: 0, opp3PM: 0, opp3PA: 0,
           oppFTM: 0, oppFTA: 0, oppREB: 0, oppAST: 0, oppTOV: 0, oppSTL: 0, oppBLK: 0
         };
+
+        // Initialize team style (tendencies/pace/etc)
+        team.style = generateTeamStyle(team.id);
       });
 
       return league;
@@ -3048,8 +3256,33 @@
             v = 13;
             league.schemaVersion = 13;
             console.log("[Migration] ✓ v12 → v13 complete");
-          }
           
+          } else if (v === 13) {
+            // v13 → v14: Initialize player tendencies and team styles
+            console.log("[Migration] Applying v13 → v14: Initialize player tendencies and team styles");
+            
+            // Initialize player tendencies
+            league.players = league.players || [];
+            league.players.forEach(p => {
+              if (!p.tendencies) {
+                p.tendencies = generatePlayerTendencies(p.pos || "SF", p.archetype || "Two-Way", p.ratings || {});
+              }
+            });
+            
+            // Initialize team styles
+            league.teams = league.teams || [];
+            league.teams.forEach(t => {
+              if (!t.style) {
+                state.league = league; // temporarily set so generateTeamStyle can access players
+                t.style = generateTeamStyle(t.id);
+              }
+            });
+            
+            v = 14;
+            league.schemaVersion = 14;
+            console.log("[Migration] ✓ v13 → v14 complete");
+          
+          }
           else {
             // Safety: if we encounter an unknown version, log and break
             console.warn(`[Migration] Unknown schema version ${v}, breaking migration loop`);
@@ -3496,10 +3729,13 @@
         const reb = Math.round( randInt(0, Math.max(1, 10)) * ( (w.share * (0.5 + w.rebFactor)) / Math.max(0.0001, totalReb) ) );
 
         // Defensive stats: steals, blocks, turnovers
-        const defenseRating = (p.ratings?.perD || p.ovr) / 100;
-        const stl = Math.round(w.share * (0.3 + defenseRating * 0.2) * randInt(2, 5));
-        const blk = Math.round(w.share * ((p.pos === 'C' || p.pos === 'PF' ? 0.5 : 0.1) + defenseRating * 0.1) * randInt(1, 3));
-        const tov = Math.round(w.share * randInt(1, 4));
+        const mods = getArchetypeMods(p.archetype);
+        const r = p.ratings || {};
+        const defFactor = n0(((r.perD || p.ovr) * 0.5 + (r.inD || 50) * 0.3 + (r.stl || 30) * 0.2) / 100);
+        const stl = Math.round(w.share * (0.15 + defFactor * 0.9) * randInt(0, 5) * (mods.stlWeightMult || 1));
+        const blkFactor = n0(((r.blk || 20) * 0.65 + (r.ath || 40) * 0.25 + (r.inD || 30) * 0.10) / 100) * (mods.blkWeightMult || 1);
+        const blk = Math.round(w.share * ( (p.pos === 'C' || p.pos === 'PF' ? 0.5 : 0.12) + blkFactor ) * randInt(0, 3));
+        const tov = Math.round(w.share * (0.8 + (1 - defFactor)) * randInt(0, 3) * (mods.tovProbMult || 1));
 
         // FG attempts/makes proportional to points (assuming ~46% FG)
         const fga = Math.round(pts / 0.46);
@@ -3537,6 +3773,79 @@
         const staminaLoss = Math.round(w.mins * 0.15) + randInt(-2, 2);
         p.stamina = clamp(p.stamina - staminaLoss, 0, 100);
       });
+    }
+
+    /**
+     * TEMP HELPER: Run N fast simulation games between two random teams and
+     * log average team totals for REB/AST/STL/BLK/TOV. Runs in-browser via console.
+     * Usage (in browser console): simulateValidation(10)
+     */
+    function simulateValidation(numGames = 10) {
+      if (!state || !state.league || !state.league.teams || state.league.teams.length < 2) {
+        console.warn('League not initialized or not enough teams');
+        return null;
+      }
+
+      const originalLeague = JSON.parse(JSON.stringify(state.league));
+      const cloneLeague = JSON.parse(JSON.stringify(state.league));
+      state.league = cloneLeague; // run sims on clone to avoid mutating real save
+
+      // pick two distinct teams
+      const teams = state.league.teams.slice();
+      const tA = teams[randInt(0, teams.length - 1)];
+      let tB = teams[randInt(0, teams.length - 1)];
+      while (tB.id === tA.id) tB = teams[randInt(0, teams.length - 1)];
+
+      const accum = {
+        [tA.id]: { reb: 0, ast: 0, stl: 0, blk: 0, tov: 0 },
+        [tB.id]: { reb: 0, ast: 0, stl: 0, blk: 0, tov: 0 }
+      };
+
+      for (let i = 0; i < numGames; i++) {
+        // reset per-player per-game stats container
+        state.league.players.forEach(p => { p.stats = { gp: 0, min: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 }; });
+
+        simulateOneGame(tA, tB);
+
+        // aggregate team totals from player.stats
+        [tA.id, tB.id].forEach(tid => {
+          const roster = state.league.players.filter(p => p.teamId === tid);
+          const totals = roster.reduce((s, p) => {
+            s.reb += n0(p.stats.reb || 0);
+            s.ast += n0(p.stats.ast || 0);
+            s.stl += n0(p.stats.stl || 0);
+            s.blk += n0(p.stats.blk || 0);
+            s.tov += n0(p.stats.tov || 0);
+            return s;
+          }, { reb: 0, ast: 0, stl: 0, blk: 0, tov: 0 });
+          accum[tid].reb += totals.reb;
+          accum[tid].ast += totals.ast;
+          accum[tid].stl += totals.stl;
+          accum[tid].blk += totals.blk;
+          accum[tid].tov += totals.tov;
+        });
+      }
+
+      // compute averages
+      const results = {};
+      [tA.id, tB.id].forEach(tid => {
+        results[tid] = {
+          team: state.league.teams.find(t => t.id === tid).name,
+          avgREB: +(accum[tid].reb / numGames).toFixed(2),
+          avgAST: +(accum[tid].ast / numGames).toFixed(2),
+          avgSTL: +(accum[tid].stl / numGames).toFixed(2),
+          avgBLK: +(accum[tid].blk / numGames).toFixed(2),
+          avgTOV: +(accum[tid].tov / numGames).toFixed(2)
+        };
+      });
+
+      console.log('Validation results (averages per game over', numGames, 'games):');
+      console.table(Object.values(results).map(r => ({ Team: r.team, REB: r.avgREB, AST: r.avgAST, STL: r.avgSTL, BLK: r.avgBLK, TOV: r.avgTOV })));
+      console.log('Target ranges: REB 40–55, AST 20–30, STL 6–9, BLK 4–7, TOV 11–16');
+
+      // restore original league state
+      state.league = originalLeague;
+      return results;
     }
 
     // Team Dashboard Helper Functions
@@ -4170,33 +4479,51 @@
       const bhStats = liveGame[statsKey][ballHandler.id];
       const defStats = liveGame[isHome ? 'awayStats' : 'homeStats'][defender.id];
       
-      // STEP 1: Turnover check (13% base probability, influenced by ballhandler ratings)
-      const bhSpd = n0((ballHandler.ratings?.spd || 50) / 100) || 0.5;
-      const turnoverChance = Math.max(0.07, Math.min(0.25, 0.13 * (1 - (bhSpd / 150))));
-      
+      // STEP 1: Turnover check (rating + archetype driven)
+      const bhRatings = ballHandler.ratings || {};
+      const defRatings = defender.ratings || {};
+      const bhMods = getArchetypeMods(ballHandler.archetype);
+      const defMods = getArchetypeMods(defender.archetype);
+
+      const ballSecurity = n0(((bhRatings.pas || 50) * 0.45 + (bhRatings.iq || 50) * 0.30 + (bhRatings.drb || 50) * 0.25) / 100);
+      const defPressure = n0(((defRatings.inD || 50) * 0.45 + (defRatings.perD || 50) * 0.30 + (defRatings.ath || 50) * 0.25) / 100);
+
+      let turnoverChance = 0.13 * (1 - ballSecurity) * bhMods.tovProbMult * defMods.stlWeightMult * (1 + defPressure * 0.4);
+      turnoverChance = Math.max(0.04, Math.min(0.30, turnoverChance));
+
       if (Math.random() < turnoverChance) {
         bhStats.tov += 1;
-        
-        // 55% of turnovers are steals by defender
-        if (Math.random() < 0.55) {
-          defStats.stl += 1;
-          liveGame.pbp.push({
-            q: liveGame.quarter,
-            t: formatClockTime(liveGame.clock),
-            text: `Steal! ${defender.firstName} strips ${ballHandler.firstName}!`
+
+        // Determine if it's a steal and by whom (weight by defensive steal attributes)
+        const stealBase = 0.55 * n0((defender.ratings?.stl || 45) / 75) * defMods.stlWeightMult;
+        const isSteal = Math.random() < Math.min(0.95, Math.max(0.15, stealBase));
+
+        if (isSteal) {
+          // Pick a stealer from defense roster weighted by steal/int/ath and archetype
+          const weights = defenseRoster.map(p => {
+            const r = p.ratings || {};
+            const mods = getArchetypeMods(p.archetype);
+            return n0(( (r.stl || 40) * 0.6 + (r.inD || 40) * 0.25 + (r.ath || 40) * 0.15 ) * (mods.stlWeightMult || 1));
           });
+          const totalW = weights.reduce((a,b)=>a+b,0) || 1;
+          let pick = Math.random() * totalW;
+          let idx = 0;
+          for (; idx < weights.length; idx++) { pick -= weights[idx]; if (pick <= 0) break; }
+          const stealer = defenseRoster[idx] || defender;
+          if (!liveGame[isHome ? 'awayStats' : 'homeStats'][stealer.id]) {
+            liveGame[isHome ? 'awayStats' : 'homeStats'][stealer.id] = { pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 };
+          }
+          liveGame[isHome ? 'awayStats' : 'homeStats'][stealer.id].stl += 1;
+          liveGame.pbp.push({ q: liveGame.quarter, t: formatClockTime(liveGame.clock), text: `Steal! ${stealer.firstName} strips ${ballHandler.firstName}!` });
         } else {
           const pbpTexts = [
             `${ballHandler.firstName} turns the ball over.`,
             `Turnover — bad pass by ${ballHandler.firstName}.`,
             `${ballHandler.firstName} loses control of the ball.`
           ];
-          liveGame.pbp.push({
-            q: liveGame.quarter,
-            t: formatClockTime(liveGame.clock),
-            text: pbpTexts[randInt(0, pbpTexts.length - 1)]
-          });
+          liveGame.pbp.push({ q: liveGame.quarter, t: formatClockTime(liveGame.clock), text: pbpTexts[randInt(0, pbpTexts.length - 1)] });
         }
+
         liveGame.possession = defenseTid;
         liveGame.clock -= randInt(6, 24);
         return;
@@ -4217,18 +4544,35 @@
       }
       const shooterStats = liveGame[statsKey][shooter.id];
       
-      // Block chance on 2-pointers (6% base)
+      // Block chance on 2-pointers (rating + archetype + physicals)
       if (shotType === '2pt') {
-        const defBlockRating = n0((defender.ratings?.blk || 50) / 100) || 0.5;
-        const blockChance = Math.min(0.15, 0.06 * (defBlockRating / 0.9));
-        
+        // Build weights for likely blockers from defense roster
+        const blkWeights = defenseRoster.map(p => {
+          const r = p.ratings || {};
+          const mods = getArchetypeMods(p.archetype);
+          const wingspan = n0(p.wingspanIn || 0);
+          const height = n0(p.heightIn || 0);
+          const physExt = 1 + Math.max(0, (wingspan - height) / 40);
+          return n0(( (r.blk || 30) * 0.6 + (r.ath || 40) * 0.25 + (r.inD || 40) * 0.15 ) * (mods.blkWeightMult || 1) * physExt);
+        });
+        const totalBlk = blkWeights.reduce((a,b)=>a+b,0) || 1;
+        // Estimate block probability relative to average blocking strength
+        const avgBlkStrength = totalBlk / blkWeights.length;
+        const defenderBlkStrength = blkWeights[defenseRoster.indexOf(defender)] || avgBlkStrength;
+        const baseBlock = 0.06;
+        const blockChance = Math.min(0.30, baseBlock * (defenderBlkStrength / Math.max(10, avgBlkStrength)) );
+
         if (Math.random() < blockChance) {
-          defStats.blk += 1;
-          liveGame.pbp.push({
-            q: liveGame.quarter,
-            t: formatClockTime(liveGame.clock),
-            text: `Block! ${defender.firstName} rejects ${shooter.firstName}!`
-          });
+          // pick actual blocker weighted
+          let pick = Math.random() * totalBlk;
+          let bi = 0;
+          for (; bi < blkWeights.length; bi++) { pick -= blkWeights[bi]; if (pick <= 0) break; }
+          const blocker = defenseRoster[bi] || defender;
+          if (!liveGame[isHome ? 'awayStats' : 'homeStats'][blocker.id]) {
+            liveGame[isHome ? 'awayStats' : 'homeStats'][blocker.id] = { pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 };
+          }
+          liveGame[isHome ? 'awayStats' : 'homeStats'][blocker.id].blk += 1;
+          liveGame.pbp.push({ q: liveGame.quarter, t: formatClockTime(liveGame.clock), text: `Block! ${blocker.firstName} rejects ${shooter.firstName}!` });
           liveGame.possession = defenseTid;
           liveGame.clock -= randInt(6, 24);
           return;
@@ -4315,35 +4659,65 @@
       
       // STEP 7: Rebound opportunity (if miss or blocked shot)
       if (!isMake || (shotType === 'ft' && !isMake)) {
-        // Offensive rebound chance: 25% base
-        const offRebChance = 0.25;
+        // Compute offensive and defensive reb strength using ratings + archetype modifiers + physicals
+        function teamRebStrength(roster) {
+          return roster.reduce((sum, p) => {
+            const r = p.ratings || {};
+            const mods = getArchetypeMods(p.archetype);
+            const wingspan = n0(p.wingspanIn || 0);
+            const height = n0(p.heightIn || 0);
+            const physExt = 1 + Math.max(0, (wingspan - height) / 60);
+            return sum + n0((r.reb || 40) * (mods.rebWeightMult || 1) * physExt);
+          }, 0);
+        }
+
+        const offStr = Math.max(1, teamRebStrength(offenseRoster));
+        const defStr = Math.max(1, teamRebStrength(defenseRoster));
+        // Offensive rebound probability proportional to offensive strength
+        const offRebChance = 0.25 * (offStr / (offStr + defStr));
         const isOffensive = Math.random() < offRebChance;
-        
+
         if (isOffensive) {
-          // Aggressive offensive rebounder
-          const offRebounder = offenseRoster[randInt(0, offenseRoster.length - 1)];
+          // pick offensive rebounder weighted by reb/wingspan/archetype
+          const weights = offenseRoster.map(p => {
+            const r = p.ratings || {};
+            const mods = getArchetypeMods(p.archetype);
+            const wingspan = n0(p.wingspanIn || 0);
+            const height = n0(p.heightIn || 0);
+            const physExt = 1 + Math.max(0, (wingspan - height) / 60);
+            return n0(( (r.reb || 30) * 0.7 + (r.ath || 30) * 0.2 + (r.str || 30) * 0.1 ) * (mods.rebWeightMult || 1) * physExt);
+          });
+          const totalW = weights.reduce((a,b)=>a+b,0) || 1;
+          let pick = Math.random() * totalW;
+          let idx = 0;
+          for (; idx < weights.length; idx++) { pick -= weights[idx]; if (pick <= 0) break; }
+          const offRebounder = offenseRoster[idx] || offenseRoster[0];
           if (!liveGame[statsKey][offRebounder.id]) {
             liveGame[statsKey][offRebounder.id] = { pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 };
           }
           liveGame[statsKey][offRebounder.id].reb += 1;
-          liveGame.pbp.push({
-            q: liveGame.quarter,
-            t: formatClockTime(liveGame.clock),
-            text: `Offensive rebound: ${offRebounder.firstName}.`
-          });
+          liveGame.pbp.push({ q: liveGame.quarter, t: formatClockTime(liveGame.clock), text: `Offensive rebound: ${offRebounder.firstName}.` });
           // Possession stays with offense
         } else {
-          // Defensive rebounder
-          const defRebounder = defenseRoster[randInt(0, defenseRoster.length - 1)];
+          // pick defensive rebounder weighted
+          const weights = defenseRoster.map(p => {
+            const r = p.ratings || {};
+            const mods = getArchetypeMods(p.archetype);
+            const wingspan = n0(p.wingspanIn || 0);
+            const height = n0(p.heightIn || 0);
+            const physExt = 1 + Math.max(0, (wingspan - height) / 60);
+            return n0(( (r.reb || 30) * 0.7 + (r.inD || 30) * 0.2 + (r.blk || 20) * 0.1 ) * (mods.rebWeightMult || 1) * physExt);
+          });
+          const totalW = weights.reduce((a,b)=>a+b,0) || 1;
+          let pick = Math.random() * totalW;
+          let idx = 0;
+          for (; idx < weights.length; idx++) { pick -= weights[idx]; if (pick <= 0) break; }
+          const defRebounder = defenseRoster[idx] || defenseRoster[0];
           if (!liveGame[isHome ? 'awayStats' : 'homeStats'][defRebounder.id]) {
             liveGame[isHome ? 'awayStats' : 'homeStats'][defRebounder.id] = { pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 };
           }
           liveGame[isHome ? 'awayStats' : 'homeStats'][defRebounder.id].reb += 1;
-          liveGame.pbp.push({
-            q: liveGame.quarter,
-            t: formatClockTime(liveGame.clock),
-            text: `Rebound: ${defRebounder.firstName}.`
-          });
+          liveGame.pbp.push({ q: liveGame.quarter, t: formatClockTime(liveGame.clock), text: `Rebound: ${defRebounder.firstName}.` });
           // Possession changes
           liveGame.possession = defenseTid;
         }
@@ -5492,40 +5866,40 @@
                 <div style="margin-bottom: 8px;">
                   <div style="color: #888; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Athleticism</div>
                   <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; font-size: 12px;">
-                    <div><span style="color: #888;">ATH:</span> <span style="color: #fff; font-weight: 600;">${player.ratings.ath}</span></div>
-                    <div><span style="color: #888;">SPD:</span> <span style="color: #fff; font-weight: 600;">${player.ratings.spd}</span></div>
-                    <div><span style="color: #888;">STR:</span> <span style="color: #fff; font-weight: 600;">${player.ratings.str}</span></div>
-                    <div><span style="color: #888;">STA:</span> <span style="color: #fff; font-weight: 600;">${player.ratings.stam}</span></div>
+                    <div><span style="color: #888;">ATH:</span> <span style="color: #fff; font-weight: 600;">${formatAttr(player.ratings.ath)}</span></div>
+                    <div><span style="color: #888;">SPD:</span> <span style="color: #fff; font-weight: 600;">${formatAttr(player.ratings.spd)}</span></div>
+                    <div><span style="color: #888;">STR:</span> <span style="color: #fff; font-weight: 600;">${formatAttr(player.ratings.str)}</span></div>
+                    <div><span style="color: #888;">STA:</span> <span style="color: #fff; font-weight: 600;">${formatAttr(player.ratings.stam)}</span></div>
                   </div>
                 </div>
                 
                 <div style="margin-bottom: 8px;">
                   <div style="color: #888; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Offense</div>
                   <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; font-size: 12px;">
-                    <div><span style="color: #888;">DRB:</span> <span style="color: #fff; font-weight: 600;">${player.ratings.drb}</span></div>
-                    <div><span style="color: #888;">PAS:</span> <span style="color: #fff; font-weight: 600;">${player.ratings.pas}</span></div>
-                    <div><span style="color: #888;">FIN:</span> <span style="color: #fff; font-weight: 600;">${player.ratings.fin}</span></div>
-                    <div><span style="color: #888;">MID:</span> <span style="color: #fff; font-weight: 600;">${player.ratings.mid}</span></div>
-                    <div><span style="color: #888;">3PT:</span> <span style="color: #fff; font-weight: 600;">${player.ratings.tp}</span></div>
-                    <div><span style="color: #888;">FT:</span> <span style="color: #fff; font-weight: 600;">${player.ratings.ft}</span></div>
+                    <div><span style="color: #888;">DRB:</span> <span style="color: #fff; font-weight: 600;">${formatAttr(player.ratings.drb)}</span></div>
+                    <div><span style="color: #888;">PAS:</span> <span style="color: #fff; font-weight: 600;">${formatAttr(player.ratings.pas)}</span></div>
+                    <div><span style="color: #888;">FIN:</span> <span style="color: #fff; font-weight: 600;">${formatAttr(player.ratings.fin)}</span></div>
+                    <div><span style="color: #888;">MID:</span> <span style="color: #fff; font-weight: 600;">${formatAttr(player.ratings.mid)}</span></div>
+                    <div><span style="color: #888;">3PT:</span> <span style="color: #fff; font-weight: 600;">${formatAttr(player.ratings.tp)}</span></div>
+                    <div><span style="color: #888;">FT:</span> <span style="color: #fff; font-weight: 600;">${formatAttr(player.ratings.ft)}</span></div>
                   </div>
                 </div>
                 
                 <div style="margin-bottom: 8px;">
                   <div style="color: #888; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Defense</div>
                   <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; font-size: 12px;">
-                    <div><span style="color: #888;">PER:</span> <span style="color: #fff; font-weight: 600;">${player.ratings.perD}</span></div>
-                    <div><span style="color: #888;">INT:</span> <span style="color: #fff; font-weight: 600;">${player.ratings.inD}</span></div>
-                    <div><span style="color: #888;">REB:</span> <span style="color: #fff; font-weight: 600;">${player.ratings.reb}</span></div>
-                    <div><span style="color: #888;">BLK:</span> <span style="color: #fff; font-weight: 600;">${player.ratings.blk}</span></div>
-                    <div><span style="color: #888;">STL:</span> <span style="color: #fff; font-weight: 600;">${player.ratings.stl}</span></div>
+                    <div><span style="color: #888;">PER:</span> <span style="color: #fff; font-weight: 600;">${formatAttr(player.ratings.perD)}</span></div>
+                    <div><span style="color: #888;">INT:</span> <span style="color: #fff; font-weight: 600;">${formatAttr(player.ratings.inD)}</span></div>
+                    <div><span style="color: #888;">REB:</span> <span style="color: #fff; font-weight: 600;">${formatAttr(player.ratings.reb)}</span></div>
+                    <div><span style="color: #888;">BLK:</span> <span style="color: #fff; font-weight: 600;">${formatAttr(player.ratings.blk)}</span></div>
+                    <div><span style="color: #888;">STL:</span> <span style="color: #fff; font-weight: 600;">${formatAttr(player.ratings.stl)}</span></div>
                   </div>
                 </div>
                 
                 <div>
                   <div style="color: #888; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Mental</div>
                   <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; font-size: 12px;">
-                    <div><span style="color: #888;">IQ:</span> <span style="color: #fff; font-weight: 600;">${player.ratings.iq}</span></div>
+                    <div><span style="color: #888;">IQ:</span> <span style="color: #fff; font-weight: 600;">${formatAttr(player.ratings.iq)}</span></div>
                   </div>
                 </div>
               </div>
@@ -7383,6 +7757,7 @@
                           <a href="#teams" onclick="selectTeamForStandings('${team.id}')" style="color: #60a5fa; text-decoration: none; cursor: pointer; font-weight: 500;">
                             ${team.color ? generateTeamLogo(team.abbrev, team.color, 16) : ''} ${escapeHtml(team.name)}
                           </a>
+                          ${team.id === state.userTeamId ? '<span style="margin-left: 8px; background: #60a5fa; color: #000; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;">your team</span>' : ''}
                         </td>
                         <td style="text-align: center; padding: 10px 8px;">${record}</td>
                         <td style="text-align: center; padding: 10px 8px;">${winPct}</td>
@@ -8999,8 +9374,8 @@
               };
             });
 
-          // Generate players for teams (8 per team minimum)
-          const playersPerTeam = Math.max(8, Math.floor(80 / selectedTeams.length)); // Distribute ~80 total evenly
+          // Generate players for teams (15 per team)
+          const playersPerTeam = 15;
           const players = generatePlayersForTeams(selectedTeams, playersPerTeam);
           
           // Ensure all generated players have valid identities (apply bio generation + names)
