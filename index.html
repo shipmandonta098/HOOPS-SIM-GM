@@ -4447,6 +4447,149 @@
     }
 
     /**
+     * Helper: Calculate shot type based on team style and player tendencies
+     * Returns: '3pt', 'mid', 'rim', or 'drive'
+     */
+    function selectShotType(teamStyle, playerTendencies) {
+      const r = Math.random();
+      const ts = teamStyle || { threeRate: 35, rimRate: 35, midRate: 30 };
+      const pt = playerTendencies || { shot3Freq: 25, shotRimFreq: 30, shotMidFreq: 30, driveFreq: 25 };
+      
+      // Normalize team style percentages
+      const total = ts.threeRate + ts.rimRate + ts.midRate;
+      const p3 = (ts.threeRate / total) * 0.5 + (pt.shot3Freq / 100) * 0.5;
+      const prim = (ts.rimRate / total) * 0.5 + (pt.shotRimFreq / 100) * 0.5;
+      const pmid = (ts.midRate / total) * 0.5 + (pt.shotMidFreq / 100) * 0.5;
+      const pdrive = (pt.driveFreq / 100) * 0.3;
+      
+      const total_p = p3 + prim + pmid + pdrive;
+      if (r < p3 / total_p) return '3pt';
+      if (r < (p3 + prim) / total_p) return 'rim';
+      if (r < (p3 + prim + pmid) / total_p) return 'mid';
+      return 'drive';
+    }
+
+    /**
+     * Helper: Calculate make probability for a shot
+     * Returns: 0-1 probability
+     */
+    function calculateShotMakeProbability(shotType, shooterRating, defenderRating, archetype) {
+      const sr = n0(shooterRating / 100);
+      const dr = n0(defenderRating / 100);
+      const arcMods = getArchetypeMods(archetype || 'Two-Way');
+      
+      // Base make percentage by shot type
+      let base = 0.45; // 2pt
+      if (shotType === '3pt') base = 0.34;
+      else if (shotType === 'mid') base = 0.42;
+      else if (shotType === 'rim') base = 0.55;
+      
+      // Adjust for ratings
+      const shooterBonus = (sr - 0.5) * 0.3; // shooter rating effect
+      const defenseNegative = (dr - 0.5) * 0.2; // defense rating effect
+      
+      let probability = base + shooterBonus - defenseNegative;
+      
+      // Archetype-based adjustments (e.g., Shot Creator gets bonus on difficult shots)
+      if (archetype === 'Sharpshooter' && shotType === '3pt') probability *= 1.1;
+      if (archetype === 'Slasher' && shotType === 'rim') probability *= 1.15;
+      
+      return Math.max(0.15, Math.min(0.95, probability * CALIBRATION.shotMakeFactor));
+    }
+
+    /**
+     * Helper: Select assist recipient from teammate roster
+     * Weights by PAS rating, passFreq tendency, and minutes
+     */
+    function selectAssister(offenseRoster, offenseTid, liveGame) {
+      const startStats = liveGame.homeStats || liveGame.awayStats;
+      const statsKey = startStats ? 'homeStats' : 'awayStats';
+      
+      const weights = offenseRoster.map(p => {
+        const stats = liveGame[statsKey][p.id] || { min: 0 };
+        const r = p.ratings || {};
+        const t = p.tendencies || {};
+        const minsWeight = Math.max(0.5, stats.min / 40); // normalize to game length
+        const passSkill = n0((r.pas || 50) / 100) * 0.6;
+        const passFreq = n0(t.passFreq / 100) * 0.4;
+        return minsWeight * (passSkill + passFreq);
+      });
+      
+      const total = weights.reduce((a,b) => a+b, 0) || 1;
+      let pick = Math.random() * total;
+      for (let i = 0; i < weights.length; i++) {
+        pick -= weights[i];
+        if (pick <= 0) return offenseRoster[i];
+      }
+      return offenseRoster[0];
+    }
+
+    /**
+     * Helper: Calculate turnover probability based on security and defense pressure
+     */
+    function calculateTurnoverProbability(ballHandlerRating, defenseRating, ballHandlerTend, defenseTeamStyle) {
+      const bh = n0(ballHandlerRating / 100);
+      const df = n0(defenseRating / 100);
+      const toRisk = n0(ballHandlerTend?.turnoverRisk || 50) / 100;
+      const pressure = n0(defenseTeamStyle?.pressureDefense || 50) / 100;
+      
+      let base = 0.12;
+      const securityFactor = bh * 0.3;
+      const pressureFactor = pressure * 0.2;
+      const riskFactor = toRisk * 0.2;
+      
+      const prob = base - securityFactor + pressureFactor + riskFactor;
+      return Math.max(0.05, Math.min(0.28, prob * CALIBRATION.turnoverFactor));
+    }
+
+    /**
+     * Helper: Calculate steal probability on turnover
+     */
+    function calculateStealOnTurnoverProbability(defenseRating, stealFreq, defenseTeamStyle) {
+      const stlRating = n0(defenseRating / 100);
+      const freq = n0(stealFreq || 50) / 100;
+      const teamPressure = n0(defenseTeamStyle?.pressureDefense || 50) / 100;
+      
+      let base = 0.55;
+      const stlBonus = stlRating * 0.2;
+      const freqBonus = freq * 0.15;
+      const teamBonus = teamPressure * 0.1;
+      
+      const prob = base + stlBonus + freqBonus + teamBonus;
+      return Math.max(0.20, Math.min(0.95, prob * CALIBRATION.stealFactor));
+    }
+
+    /**
+     * Helper: Check if FT awarded (foul draw probability)
+     */
+    function didDrawFoul(shooterTendency, shotType) {
+      const foulDrawFreq = n0(shooterTendency?.foulDrawFreq || 15) / 100;
+      const shotBonus = shotType === 'rim' ? 0.15 : shotType === 'drive' ? 0.10 : 0;
+      
+      const prob = (0.04 + foulDrawFreq * 0.2 + shotBonus) * CALIBRATION.foulFactor;
+      return Math.random() < prob;
+    }
+
+    /**
+     * Helper: Calculate block probability
+     */
+    function calculateBlockProbability(defenderRating, shooterRating, blockFreq, shotType) {
+      if (shotType !== 'rim') return 0; // only blocks at rim
+      
+      const blkRating = n0(defenderRating / 100);
+      const shooterSpacing = n0(shooterRating / 100);
+      const freq = n0(blockFreq || 50) / 100;
+      
+      let base = 0.08;
+      const blkBonus = blkRating * 0.25;
+      const frequencyBonus = freq * 0.15;
+      const shooterNegative = (shooterSpacing - 0.5) * 0.1;
+      
+      const prob = base + blkBonus + frequencyBonus - shooterNegative;
+      return Math.max(0.03, Math.min(0.30, prob * CALIBRATION.blockFactor));
+    }
+
+    /**
      * Play next possession in the game
      * Tracks all 7 basketball events: points, rebounds, assists, steals, blocks, turnovers, fouls
      */
