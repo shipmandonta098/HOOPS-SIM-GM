@@ -1423,8 +1423,13 @@
     /**
      * Generate team style/tendencies (0–100 integers)
      */
-    function generateTeamStyle(teamId) {
-      const roster = state.league.players.filter(p => p.teamId === teamId);
+    function generateTeamStyle(teamId, players = []) {
+      // Use provided players array, or fall back to state.league if available
+      const rosterArray = players.length > 0 
+        ? players 
+        : ((state && state.league && state.league.players) ? state.league.players : []);
+      
+      const roster = rosterArray.filter(p => p.teamId === teamId);
       const avgOVR = roster.length > 0 ? roster.reduce((s, p) => s + p.ovr, 0) / roster.length : 75;
       
       return {
@@ -2866,7 +2871,8 @@
         };
 
         // Initialize team style (tendencies/pace/etc)
-        team.style = generateTeamStyle(team.id);
+        // Pass players array to avoid state.league not being ready yet
+        team.style = generateTeamStyle(team.id, players);
       });
 
       return league;
@@ -3273,8 +3279,7 @@
             league.teams = league.teams || [];
             league.teams.forEach(t => {
               if (!t.style) {
-                state.league = league; // temporarily set so generateTeamStyle can access players
-                t.style = generateTeamStyle(t.id);
+                t.style = generateTeamStyle(t.id, league.players || []);
               }
             });
             
