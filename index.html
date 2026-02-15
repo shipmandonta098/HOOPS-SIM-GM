@@ -1208,17 +1208,7 @@
      *   v11: Lineup tracking system (possession-level aggregation)
      *   v12: Team opponent stats tracking (oppPts, oppFGM/A, etc.)
      **********************/
-    const CURRENT_SCHEMA_VERSION = 14;
-
-    // Calibration multipliers for realistic stat environment
-    const CALIBRATION = {
-      shotMakeFactor: 1.25,  // Boost shooting make % to increase scoring
-      turnoverFactor: 0.72,  // Reduce TO rate
-      foulFactor: 1.0,       // Adjust fouls
-      blockFactor: 1.3,      // Boost blocks
-      stealFactor: 0.65,     // Reduce steals  
-      oRebFactor: 1.0        // Adjust offensive rebound chance
-    };
+    const CURRENT_SCHEMA_VERSION = 13;
     const inMemorySaves = [];
     const inMemoryLeagues = {};
 
@@ -1297,150 +1287,6 @@
 
     function getArchetypeMods(archetype) {
       return archetypeMods[archetype] || archetypeMods['Two-Way'];
-    }
-
-    /**
-     * Generate player tendencies (0–100 integers) based on position, archetype, and ratings
-     * Tendencies control attempt frequency, not skill
-     */
-    function generatePlayerTendencies(pos, archetype, ratings) {
-      const r = ratings || {};
-      
-      // Position-based defaults
-      let tendencies = {
-        shot3Freq: 25,      // 3-point attempt frequency
-        shotMidFreq: 30,    // Mid-range
-        shotRimFreq: 30,    // Rim/layup
-        passFreq: 20,       // Pass frequency
-        driveFreq: 25,      // Drive frequency
-        foulDrawFreq: 15,   // Foul draw frequency
-        stealFreq: 50,      // Steal aggression
-        blockFreq: 50,      // Block aggression
-        offRebFreq: 50,     // Offensive rebound chase
-        defRebFreq: 50,     // Defensive rebound chase
-        turnoverRisk: 50,   // Turnover risk
-        usage: 50           // Usage rate (attempt frequency)
-      };
-
-      // Position adjustments
-      if (pos === "PG") {
-        tendencies.shot3Freq = 35;
-        tendencies.shotMidFreq = 25;
-        tendencies.shotRimFreq = 20;
-        tendencies.passFreq = 40;
-        tendencies.driveFreq = 35;
-        tendencies.offRebFreq = 20;
-        tendencies.defRebFreq = 35;
-        tendencies.usage = 55;
-      } else if (pos === "SG") {
-        tendencies.shot3Freq = 40;
-        tendencies.shotMidFreq = 35;
-        tendencies.shotRimFreq = 20;
-        tendencies.passFreq = 15;
-        tendencies.driveFreq = 25;
-        tendencies.offRebFreq = 15;
-        tendencies.defRebFreq = 30;
-        tendencies.usage = 60;
-      } else if (pos === "SF") {
-        tendencies.shot3Freq = 35;
-        tendencies.shotMidFreq = 30;
-        tendencies.shotRimFreq = 25;
-        tendencies.passFreq = 20;
-        tendencies.driveFreq = 25;
-        tendencies.offRebFreq = 35;
-        tendencies.defRebFreq = 45;
-        tendencies.usage = 50;
-      } else if (pos === "PF") {
-        tendencies.shot3Freq = 20;
-        tendencies.shotMidFreq = 30;
-        tendencies.shotRimFreq = 40;
-        tendencies.passFreq = 15;
-        tendencies.driveFreq = 20;
-        tendencies.offRebFreq = 60;
-        tendencies.defRebFreq = 60;
-        tendencies.usage = 45;
-        tendencies.blockFreq = 70;
-      } else { // C
-        tendencies.shot3Freq = 10;
-        tendencies.shotMidFreq = 25;
-        tendencies.shotRimFreq = 50;
-        tendencies.passFreq = 10;
-        tendencies.driveFreq = 15;
-        tendencies.offRebFreq = 70;
-        tendencies.defRebFreq = 70;
-        tendencies.usage = 40;
-        tendencies.blockFreq = 75;
-      }
-
-      // Archetype modifiers
-      if (archetype === "Playmaker") {
-        tendencies.passFreq = Math.min(100, tendencies.passFreq + 20);
-        tendencies.usage = Math.max(0, tendencies.usage - 5);
-      } else if (archetype === "Shot Creator") {
-        tendencies.usage = Math.min(100, tendencies.usage + 15);
-        tendencies.passFreq = Math.max(0, tendencies.passFreq - 10);
-      } else if (archetype === "Glass Cleaner") {
-        tendencies.offRebFreq = Math.min(100, tendencies.offRebFreq + 25);
-        tendencies.defRebFreq = Math.min(100, tendencies.defRebFreq + 20);
-      } else if (archetype === "Rim Protector") {
-        tendencies.blockFreq = Math.min(100, tendencies.blockFreq + 30);
-      } else if (archetype === "Lockdown Defender") {
-        tendencies.stealFreq = Math.min(100, tendencies.stealFreq + 25);
-        tendencies.turnoverRisk = Math.max(0, tendencies.turnoverRisk - 15);
-      } else if (archetype === "3&D") {
-        tendencies.shot3Freq = Math.min(100, tendencies.shot3Freq + 15);
-        tendencies.stealFreq = Math.min(100, tendencies.stealFreq + 10);
-      }
-
-      // Rating-based adjustments
-      const pass = n0((r.pas || 50) / 100);
-      const fin = n0((r.fin || 50) / 100);
-      const tp = n0((r.tp || 50) / 100);
-      const mid = n0((r.mid || 50) / 100);
-      const reb = n0((r.reb || 50) / 100);
-      const stl = n0((r.stl || 50) / 100);
-      const blk = n0((r.blk || 50) / 100);
-
-      if (pass > 0.7) tendencies.passFreq = Math.min(100, tendencies.passFreq + 15);
-      if (tp > 0.7) tendencies.shot3Freq = Math.min(100, tendencies.shot3Freq + 20);
-      if (mid > 0.7) tendencies.shotMidFreq = Math.min(100, tendencies.shotMidFreq + 15);
-      if (fin > 0.7) tendencies.shotRimFreq = Math.min(100, tendencies.shotRimFreq + 20);
-      if (reb > 0.7) {
-        tendencies.offRebFreq = Math.min(100, tendencies.offRebFreq + 15);
-        tendencies.defRebFreq = Math.min(100, tendencies.defRebFreq + 15);
-      }
-      if (stl > 0.7) tendencies.stealFreq = Math.min(100, tendencies.stealFreq + 20);
-      if (blk > 0.7) tendencies.blockFreq = Math.min(100, tendencies.blockFreq + 20);
-
-      // Clamp all to 0–100
-      Object.keys(tendencies).forEach(key => {
-        tendencies[key] = clampInt(tendencies[key], 0, 100);
-      });
-
-      return tendencies;
-    }
-
-    /**
-     * Generate team style/tendencies (0–100 integers)
-     */
-    function generateTeamStyle(teamId, players = []) {
-      // Use provided players array, or fall back to state.league if available
-      const rosterArray = players.length > 0 
-        ? players 
-        : ((state && state.league && state.league.players) ? state.league.players : []);
-      
-      const roster = rosterArray.filter(p => p.teamId === teamId);
-      const avgOVR = roster.length > 0 ? roster.reduce((s, p) => s + p.ovr, 0) / roster.length : 75;
-      
-      return {
-        pace: clampInt(Math.round(avgOVR * 0.9 + randInt(-10, 10)), 80, 110),         // Possessions per game
-        threeRate: clampInt(Math.round(35 + randInt(-8, 8)), 20, 50),                 // % of FGA that are 3s
-        rimRate: clampInt(Math.round(35 + randInt(-8, 8)), 20, 50),                   // % of FGA at rim
-        midRate: clampInt(Math.round(30 + randInt(-8, 8)), 15, 45),                   // % of FGA mid-range
-        passRate: clampInt(Math.round(50 + randInt(-10, 10)), 30, 70),                // Assist tendency
-        crashOReb: clampInt(Math.round(50 + randInt(-15, 15)), 20, 80),               // Offensive rebound chase
-        pressureDefense: clampInt(Math.round(50 + randInt(-15, 15)), 20, 80)          // Defensive pressure/steals
-      };
     }
 
     // Bio generation data
@@ -2691,9 +2537,6 @@
           player.archetype = archetype.primary;
           player.archetypeTags = archetype.tags;
 
-          // Generate player tendencies based on position, archetype, and ratings
-          player.tendencies = generatePlayerTendencies(pos, player.archetype, ratings);
-
           // Generate personality
           player.personality = generatePersonality(player.pos, region);
           player.personalityTags = computePersonalityTags(player);
@@ -2869,10 +2712,6 @@
           oppPts: 0, oppFGM: 0, oppFGA: 0, opp3PM: 0, opp3PA: 0,
           oppFTM: 0, oppFTA: 0, oppREB: 0, oppAST: 0, oppTOV: 0, oppSTL: 0, oppBLK: 0
         };
-
-        // Initialize team style (tendencies/pace/etc)
-        // Pass players array to avoid state.league not being ready yet
-        team.style = generateTeamStyle(team.id, players);
       });
 
       return league;
@@ -3262,32 +3101,8 @@
             v = 13;
             league.schemaVersion = 13;
             console.log("[Migration] ✓ v12 → v13 complete");
-          
-          } else if (v === 13) {
-            // v13 → v14: Initialize player tendencies and team styles
-            console.log("[Migration] Applying v13 → v14: Initialize player tendencies and team styles");
-            
-            // Initialize player tendencies
-            league.players = league.players || [];
-            league.players.forEach(p => {
-              if (!p.tendencies) {
-                p.tendencies = generatePlayerTendencies(p.pos || "SF", p.archetype || "Two-Way", p.ratings || {});
-              }
-            });
-            
-            // Initialize team styles
-            league.teams = league.teams || [];
-            league.teams.forEach(t => {
-              if (!t.style) {
-                t.style = generateTeamStyle(t.id, league.players || []);
-              }
-            });
-            
-            v = 14;
-            league.schemaVersion = 14;
-            console.log("[Migration] ✓ v13 → v14 complete");
-          
           }
+          
           else {
             // Safety: if we encounter an unknown version, log and break
             console.warn(`[Migration] Unknown schema version ${v}, breaking migration loop`);
@@ -3702,81 +3517,195 @@
 
     function distributeStats(teamId, won) {
       const roster = state.league.players.filter(p => p.teamId === teamId).sort((a,b) => b.ovr - a.ovr);
+      if (roster.length === 0) return;
+      
       const minutesShare = getMinutesShare(teamId);
-      const teamPts = randInt(90, 130);
 
-      // Build offensive/assist/rebound weights based on ratings and minutes
-      const weights = roster.map(p => {
+      // ===== STEP 1: Team-level shot distribution (realistic, constrained ranges) =====
+      // ~100 possessions per team per game
+      const possessions = 100;
+      
+      // FGA: 75–95 per team per game
+      const fga = 75 + randInt(0, 20);
+      
+      // 3PA: 20–35 per team per game
+      const tpa = 20 + randInt(0, 15);
+      const twoPA = fga - tpa;
+      
+      // FTA: 15–30 per team per game
+      const fta = 15 + randInt(0, 15);
+      
+      // ===== STEP 2: Calculate makes/misses with realistic shooting % =====
+      // 2P%: 46%, 3P%: 34%, FT%: 77%
+      const twopm = Math.round(twoPA * 0.46);
+      const twopmiss = Math.max(0, twoPA - twopm);
+      
+      const tpm = Math.round(tpa * 0.34);
+      const tpamiss = Math.max(0, tpa - tpm);
+      
+      const ftm = Math.round(fta * 0.77);
+      const ftamiss = Math.max(0, fta - ftm);
+      
+      const fgm = twopm + tpm;
+      const fgmiss = twopmiss + tpamiss;
+      
+      // Total points for team
+      const teamPts = Math.max(70, Math.round(twopm * 2 + tpm * 3 + ftm));
+      
+      // ===== STEP 3: Calculate reboundable events and allocate ORBs/DRBs =====
+      // Rebounds come from FG misses + FT misses
+      const reboundableMisses = fgmiss + ftamiss;
+      
+      // 28% are ORBs (25–30% range)
+      const orbs = Math.round(reboundableMisses * 0.28);
+      const drbs = Math.max(0, reboundableMisses - orbs);
+      const totalRebs = Math.max(0, orbs + drbs);
+      
+      // ===== STEP 4: Calculate assists =====
+      // 60% of FGM get assists (55–65% range)
+      const totalAsts = Math.round(fgm * 0.60);
+      
+      // ===== STEP 5: Calculate turnovers =====
+      // 13% of possessions (12–15% range)
+      const totalTovs = Math.round(possessions * 0.13);
+      
+      // ===== STEP 6: Calculate steals =====
+      // 60% of turnovers are live-ball steals
+      const totalStls = Math.round(totalTovs * 0.60);
+      
+      // ===== STEP 7: Calculate blocks =====
+      // 6.5% of 2PT attempts (5–8% range)
+      const totalBlks = Math.round(twoPA * 0.065);
+      
+      // ===== STEP 8: Distribute per-player stats based on minutes and ratings =====
+      roster.forEach(p => {
         const share = minutesShare[p.id] || 0.05;
         const mins = Math.max(0, Math.round(share * 240));
-        const r = p.ratings || {};
-        const offFactor = ((r.fin || p.ovr) + (r.mid || p.ovr) + (r.tp || p.ovr) + (r.drb || p.ovr)) / 400; // 0..1-ish
-        const astFactor = ((r.pas || p.ovr) / 100);
-        const rebFactor = ((r.reb || p.ovr) / 100) + (p.pos === 'C' || p.pos === 'PF' ? 0.1 : 0);
-        return { id: p.id, mins, share, offFactor, astFactor, rebFactor };
-      });
-
-      const totalOff = weights.reduce((s,w) => s + (w.share * (0.6 + w.offFactor)), 0);
-      const totalAst = weights.reduce((s,w) => s + (w.share * (0.5 + w.astFactor)), 0);
-      const totalReb = weights.reduce((s,w) => s + (w.share * (0.5 + w.rebFactor)), 0);
-
-      // Allocate stats proportionally
-      roster.forEach(p => {
-        const w = weights.find(x => x.id === p.id);
-        if (!w || w.mins <= 0) return;
-
-        // Points allocation proportional to offensive weight
-        const offWeight = w.share * (0.6 + w.offFactor);
-        const pts = Math.round(teamPts * (offWeight / Math.max(0.0001, totalOff)));
-
-        // Assists and rebounds similarly
-        const ast = Math.round( randInt(0, Math.max(1, 8)) * ( (w.share * (0.5 + w.astFactor)) / Math.max(0.0001, totalAst) ) );
-        const reb = Math.round( randInt(0, Math.max(1, 10)) * ( (w.share * (0.5 + w.rebFactor)) / Math.max(0.0001, totalReb) ) );
-
-        // Defensive stats: steals, blocks, turnovers
-        const mods = getArchetypeMods(p.archetype);
-        const r = p.ratings || {};
-        const defFactor = n0(((r.perD || p.ovr) * 0.5 + (r.inD || 50) * 0.3 + (r.stl || 30) * 0.2) / 100);
-        const stl = Math.round(w.share * (0.15 + defFactor * 0.9) * randInt(0, 5) * (mods.stlWeightMult || 1));
-        const blkFactor = n0(((r.blk || 20) * 0.65 + (r.ath || 40) * 0.25 + (r.inD || 30) * 0.10) / 100) * (mods.blkWeightMult || 1);
-        const blk = Math.round(w.share * ( (p.pos === 'C' || p.pos === 'PF' ? 0.5 : 0.12) + blkFactor ) * randInt(0, 3));
-        const tov = Math.round(w.share * (0.8 + (1 - defFactor)) * randInt(0, 3) * (mods.tovProbMult || 1));
-
-        // FG attempts/makes proportional to points (assuming ~46% FG)
-        const fga = Math.round(pts / 0.46);
-        const fgm = Math.round(pts * 0.46);
         
-        // 3-pointers (assume ~25% of FGA are 3s, 34% conversion)
-        const tpa = Math.round(fga * 0.25);
-        const tpm = Math.round(tpa * 0.34);
+        // Initialize stats
+        if (!p.stats) p.stats = {};
         
-        // FTs (assume remaining points come from FTs at ~77% conversion)
-        const ftmForBal = pts - (fgm * 2) + (Math.round(tpm) * 3);
-        const fta = Math.round(ftmForBal / 0.77);
-        const ftm = Math.round(fta * 0.77);
-
-        // Update stats (ensure all fields exist)
-        p.stats.gp = (p.stats.gp || 0) + 1;
-        p.stats.min = (p.stats.min || 0) + w.mins;
-        p.stats.pts = (p.stats.pts || 0) + clamp(pts, 0, 60);
-        p.stats.reb = (p.stats.reb || 0) + clamp(reb, 0, 30);
-        p.stats.ast = (p.stats.ast || 0) + clamp(ast, 0, 20);
-        p.stats.stl = (p.stats.stl || 0) + clamp(stl, 0, 8);
-        p.stats.blk = (p.stats.blk || 0) + clamp(blk, 0, 4);
-        p.stats.tov = (p.stats.tov || 0) + clamp(tov, 0, 6);
-        p.stats.fga = (p.stats.fga || 0) + fga;
-        p.stats.fgm = (p.stats.fgm || 0) + fgm;
-        p.stats.tpa = (p.stats.tpa || 0) + tpa;
-        p.stats.tpm = (p.stats.tpm || 0) + tpm;
-        p.stats.fta = (p.stats.fta || 0) + fta;
-        p.stats.ftm = (p.stats.ftm || 0) + ftm;
-
+        p.stats.gp = n0(p.stats.gp) + 1;
+        p.stats.min = n0(p.stats.min) + mins;
+        
+        if (mins <= 0) {
+          // DNP: initialize remaining fields to 0 if missing
+          p.stats.pts = n0(p.stats.pts);
+          p.stats.reb = n0(p.stats.reb);
+          p.stats.ast = n0(p.stats.ast);
+          p.stats.stl = n0(p.stats.stl);
+          p.stats.blk = n0(p.stats.blk);
+          p.stats.tov = n0(p.stats.tov);
+          p.stats.fga = n0(p.stats.fga);
+          p.stats.fgm = n0(p.stats.fgm);
+          p.stats.tpa = n0(p.stats.tpa);
+          p.stats.tpm = n0(p.stats.tpm);
+          p.stats.fta = n0(p.stats.fta);
+          p.stats.ftm = n0(p.stats.ftm);
+          return;
+        }
+        
+        const r = p.ratings || {};
+        
+        // POINTS: Weighted by offensive rating and share
+        const finRating = n0((r.fin || 50) / 100);
+        const midRating = n0((r.mid || 50) / 100);
+        const tpRating = n0((r.tp || 50) / 100);
+        const offRating = (finRating * 0.35 + midRating * 0.30 + tpRating * 0.35);
+        const playerPts = Math.round(teamPts * share * (0.6 + offRating * 0.5));
+        
+        // FGA: Proportional to share and offensive rating
+        const playerFga = Math.round(fga * share * (0.7 + offRating * 0.4));
+        const playerFgm = Math.round(playerFga * 0.46);
+        
+        // 3PA: 25–35% of FGA (player dependent)
+        const player3pRatio = 0.25 + (tpRating * 0.15); // More 3PA if higher 3P rating
+        const playerTpa = Math.round(playerFga * player3pRatio);
+        const playerTpm = Math.round(playerTpa * 0.34);
+        
+        // FTA: Based on sheet and finishing ability
+        const playerFta = Math.round(fta * share * (0.6 + finRating * 0.4));
+        const playerFtm = Math.round(playerFta * 0.77);
+        
+        // REBOUNDS: Weighted by REB rating, position, and minutes
+        const rebRating = n0((r.reb || 40) / 100);
+        const posRebBonus = (p.pos === 'C' || p.pos === 'PF') ? 1.6 : 0.8;
+        const playerRebWeight = share * rebRating * posRebBonus;
+        const totalRebWeight = roster.reduce((sum, pp) => {
+          const rr = pp.ratings || {};
+          const rb = n0((rr.reb || 40) / 100);
+          const pb = (pp.pos === 'C' || pp.pos === 'PF') ? 1.6 : 0.8;
+          const sharepp = minutesShare[pp.id] || 0.05;
+          return sum + sharepp * rb * pb;
+        }, 0.0001);
+        const playerReb = Math.round(totalRebs * Math.max(0, playerRebWeight / totalRebWeight));
+        
+        // ASSISTS: Weighted by PASS rating
+        const passRating = n0((r.pas || 40) / 100);
+        const playerAstWeight = share * passRating;
+        const totalAstWeight = roster.reduce((sum, pp) => {
+          const rr = pp.ratings || {};
+          const pr = n0((rr.pas || 40) / 100);
+          const sharepp = minutesShare[pp.id] || 0.05;
+          return sum + sharepp * pr;
+        }, 0.0001);
+        const playerAst = Math.round(totalAsts * Math.max(0, playerAstWeight / totalAstWeight));
+        
+        // TURNOVERS: Inversely weighted by ball-handling (high usage, low handling = more TOV)
+        const drbRating = n0((r.drb || 50) / 100);
+        const playerTovWeight = share * (1.2 - drbRating);
+        const totalTovWeight = roster.reduce((sum, pp) => {
+          const rr = pp.ratings || {};
+          const dr = n0((rr.drb || 50) / 100);
+          const sharepp = minutesShare[pp.id] || 0.05;
+          return sum + sharepp * (1.2 - dr);
+        }, 0.0001);
+        const playerTov = Math.round(totalTovs * Math.max(0, playerTovWeight / totalTovWeight));
+        
+        // STEALS: Weighted by STL rating
+        const stlRating = n0((r.stl || 30) / 100);
+        const playerStlWeight = share * stlRating;
+        const totalStlWeight = roster.reduce((sum, pp) => {
+          const rr = pp.ratings || {};
+          const sr = n0((rr.stl || 30) / 100);
+          const sharepp = minutesShare[pp.id] || 0.05;
+          return sum + sharepp * sr;
+        }, 0.0001);
+        const playerStl = Math.round(totalStls * Math.max(0, playerStlWeight / totalStlWeight));
+        
+        // BLOCKS: Weighted by BLK rating with bonus for centers/forwards
+        const blkRating = n0((r.blk || 20) / 100);
+        const posBlkBonus = (p.pos === 'C' || p.pos === 'PF') ? 2.0 : 0.6;
+        const playerBlkWeight = share * blkRating * posBlkBonus;
+        const totalBlkWeight = roster.reduce((sum, pp) => {
+          const rr = pp.ratings || {};
+          const br = n0((rr.blk || 20) / 100);
+          const pb = (pp.pos === 'C' || pp.pos === 'PF') ? 2.0 : 0.6;
+          const sharepp = minutesShare[pp.id] || 0.05;
+          return sum + sharepp * br * pb;
+        }, 0.0001);
+        const playerBlk = Math.round(totalBlks * Math.max(0, playerBlkWeight / totalBlkWeight));
+        
+        // Update player stats (ensure all are >= 0)
+        p.stats.pts = n0(p.stats.pts) + Math.max(0, playerPts);
+        p.stats.reb = n0(p.stats.reb) + Math.max(0, playerReb);
+        p.stats.ast = n0(p.stats.ast) + Math.max(0, playerAst);
+        p.stats.stl = n0(p.stats.stl) + Math.max(0, playerStl);
+        p.stats.blk = n0(p.stats.blk) + Math.max(0, playerBlk);
+        p.stats.tov = n0(p.stats.tov) + Math.max(0, playerTov);
+        p.stats.fga = n0(p.stats.fga) + Math.max(0, playerFga);
+        p.stats.fgm = n0(p.stats.fgm) + Math.max(0, playerFgm);
+        p.stats.tpa = n0(p.stats.tpa) + Math.max(0, playerTpa);
+        p.stats.tpm = n0(p.stats.tpm) + Math.max(0, playerTpm);
+        p.stats.fta = n0(p.stats.fta) + Math.max(0, playerFta);
+        p.stats.ftm = n0(p.stats.ftm) + Math.max(0, playerFtm);
+        
         // Mood adjustment
-        p.mood = clamp(p.mood + (won ? randInt(0,2) : -randInt(0,2)), 0, 100);
-
+        p.mood = clamp(n0(p.mood) + (won ? randInt(0, 2) : -randInt(0, 2)), 0, 100);
+        
         // Stamina loss proportional to minutes
-        const staminaLoss = Math.round(w.mins * 0.15) + randInt(-2, 2);
-        p.stamina = clamp(p.stamina - staminaLoss, 0, 100);
+        const staminaLoss = Math.round(mins * 0.15) + randInt(-2, 2);
+        p.stamina = clamp(n0(p.stamina) - staminaLoss, 0, 100);
       });
     }
 
@@ -4452,150 +4381,6 @@
     }
 
     /**
-     * Helper: Calculate shot type based on team style and player tendencies
-     * Returns: '3pt', 'mid', 'rim', or 'drive'
-     */
-    function selectShotType(teamStyle, playerTendencies) {
-      const r = Math.random();
-      const ts = teamStyle || { threeRate: 35, rimRate: 35, midRate: 30 };
-      const pt = playerTendencies || { shot3Freq: 25, shotRimFreq: 30, shotMidFreq: 30, driveFreq: 25 };
-      
-      // Normalize team style percentages
-      const total = ts.threeRate + ts.rimRate + ts.midRate;
-      const p3 = (ts.threeRate / total) * 0.5 + (pt.shot3Freq / 100) * 0.5;
-      const prim = (ts.rimRate / total) * 0.5 + (pt.shotRimFreq / 100) * 0.5;
-      const pmid = (ts.midRate / total) * 0.5 + (pt.shotMidFreq / 100) * 0.5;
-      const pdrive = (pt.driveFreq / 100) * 0.3;
-      
-      const total_p = p3 + prim + pmid + pdrive;
-      if (r < p3 / total_p) return '3pt';
-      if (r < (p3 + prim) / total_p) return 'rim';
-      if (r < (p3 + prim + pmid) / total_p) return 'mid';
-      return 'drive';
-    }
-
-    /**
-     * Helper: Calculate make probability for a shot
-     * Returns: 0-1 probability
-     */
-    function calculateShotMakeProbability(shotType, shooterRating, defenderRating, archetype) {
-      const sr = n0(shooterRating / 100);
-      const dr = n0(defenderRating / 100);
-      const arcMods = getArchetypeMods(archetype || 'Two-Way');
-      
-      // Base make percentage by shot type
-      let base = 0.45; // 2pt
-      if (shotType === '3pt') base = 0.34;
-      else if (shotType === 'mid') base = 0.42;
-      else if (shotType === 'rim') base = 0.55;
-      else if (shotType === 'drive') base = 0.50; // drive: between 2pt and rim
-      
-      // Adjust for ratings
-      const shooterBonus = (sr - 0.5) * 0.3; // shooter rating effect
-      const defenseNegative = (dr - 0.5) * 0.2; // defense rating effect
-      
-      let probability = base + shooterBonus - defenseNegative;
-      
-      // Archetype-based adjustments (e.g., Shot Creator gets bonus on difficult shots)
-      if (archetype === 'Sharpshooter' && shotType === '3pt') probability *= 1.1;
-      if (archetype === 'Slasher' && (shotType === 'rim' || shotType === 'drive')) probability *= 1.15;
-      
-      return Math.max(0.15, Math.min(0.95, probability * CALIBRATION.shotMakeFactor));
-    }
-
-    /**
-     * Helper: Select assist recipient from teammate roster
-     * Weights by PAS rating, passFreq tendency, and minutes
-     */
-    function selectAssister(offenseRoster, offenseTid, liveGame) {
-      const startStats = liveGame.homeStats || liveGame.awayStats;
-      const statsKey = startStats ? 'homeStats' : 'awayStats';
-      
-      const weights = offenseRoster.map(p => {
-        const stats = liveGame[statsKey][p.id] || { min: 0 };
-        const r = p.ratings || {};
-        const t = p.tendencies || {};
-        const minsWeight = Math.max(0.5, stats.min / 40); // normalize to game length
-        const passSkill = n0((r.pas || 50) / 100) * 0.6;
-        const passFreq = n0(t.passFreq / 100) * 0.4;
-        return minsWeight * (passSkill + passFreq);
-      });
-      
-      const total = weights.reduce((a,b) => a+b, 0) || 1;
-      let pick = Math.random() * total;
-      for (let i = 0; i < weights.length; i++) {
-        pick -= weights[i];
-        if (pick <= 0) return offenseRoster[i];
-      }
-      return offenseRoster[0];
-    }
-
-    /**
-     * Helper: Calculate turnover probability based on security and defense pressure
-     */
-    function calculateTurnoverProbability(ballHandlerRating, defenseRating, ballHandlerTend, defenseTeamStyle) {
-      const bh = n0(ballHandlerRating / 100);
-      const df = n0(defenseRating / 100);
-      const toRisk = n0(ballHandlerTend?.turnoverRisk || 50) / 100;
-      const pressure = n0(defenseTeamStyle?.pressureDefense || 50) / 100;
-      
-      let base = 0.12;
-      const securityFactor = bh * 0.3;
-      const pressureFactor = pressure * 0.2;
-      const riskFactor = toRisk * 0.2;
-      
-      const prob = base - securityFactor + pressureFactor + riskFactor;
-      return Math.max(0.05, Math.min(0.28, prob * CALIBRATION.turnoverFactor));
-    }
-
-    /**
-     * Helper: Calculate steal probability on turnover
-     */
-    function calculateStealOnTurnoverProbability(defenseRating, stealFreq, defenseTeamStyle) {
-      const stlRating = n0(defenseRating / 100);
-      const freq = n0(stealFreq || 50) / 100;
-      const teamPressure = n0(defenseTeamStyle?.pressureDefense || 50) / 100;
-      
-      let base = 0.55;
-      const stlBonus = stlRating * 0.2;
-      const freqBonus = freq * 0.15;
-      const teamBonus = teamPressure * 0.1;
-      
-      const prob = base + stlBonus + freqBonus + teamBonus;
-      return Math.max(0.20, Math.min(0.95, prob * CALIBRATION.stealFactor));
-    }
-
-    /**
-     * Helper: Check if FT awarded (foul draw probability)
-     */
-    function didDrawFoul(shooterTendency, shotType) {
-      const foulDrawFreq = n0(shooterTendency?.foulDrawFreq || 15) / 100;
-      const shotBonus = shotType === 'rim' ? 0.15 : shotType === 'drive' ? 0.10 : 0;
-      
-      const prob = (0.04 + foulDrawFreq * 0.2 + shotBonus) * CALIBRATION.foulFactor;
-      return Math.random() < prob;
-    }
-
-    /**
-     * Helper: Calculate block probability
-     */
-    function calculateBlockProbability(defenderRating, shooterRating, blockFreq, shotType) {
-      if (shotType !== 'rim') return 0; // only blocks at rim
-      
-      const blkRating = n0(defenderRating / 100);
-      const shooterSpacing = n0(shooterRating / 100);
-      const freq = n0(blockFreq || 50) / 100;
-      
-      let base = 0.08;
-      const blkBonus = blkRating * 0.25;
-      const frequencyBonus = freq * 0.15;
-      const shooterNegative = (shooterSpacing - 0.5) * 0.1;
-      
-      const prob = base + blkBonus + frequencyBonus - shooterNegative;
-      return Math.max(0.03, Math.min(0.30, prob * CALIBRATION.blockFactor));
-    }
-
-    /**
      * Play next possession in the game
      * Tracks all 7 basketball events: points, rebounds, assists, steals, blocks, turnovers, fouls
      */
@@ -4630,18 +4415,22 @@
       
       // STEP 1: Turnover check (rating + archetype driven)
       const bhRatings = ballHandler.ratings || {};
-      const bhTend = ballHandler.tendencies || {};
-      const defenseTeamStyle = defenseTeam.style || {};
-      
-      // Use new helper for turnover probability based on ratings and tendencies
-      const turnoverChance = calculateTurnoverProbability(bhRatings.pas || 50, defenseTeam.style?.pressureDefense || 50, bhTend, defenseTeamStyle);
+      const defRatings = defender.ratings || {};
+      const bhMods = getArchetypeMods(ballHandler.archetype);
+      const defMods = getArchetypeMods(defender.archetype);
+
+      const ballSecurity = n0(((bhRatings.pas || 50) * 0.45 + (bhRatings.iq || 50) * 0.30 + (bhRatings.drb || 50) * 0.25) / 100);
+      const defPressure = n0(((defRatings.inD || 50) * 0.45 + (defRatings.perD || 50) * 0.30 + (defRatings.ath || 50) * 0.25) / 100);
+
+      let turnoverChance = 0.13 * (1 - ballSecurity) * bhMods.tovProbMult * defMods.stlWeightMult * (1 + defPressure * 0.4);
+      turnoverChance = Math.max(0.04, Math.min(0.30, turnoverChance));
 
       if (Math.random() < turnoverChance) {
         bhStats.tov += 1;
 
-        // Determine if turnover becomes a steal using helper
-        const defenseTeamStyle = defenseTeam.style || {};
-        const isSteal = Math.random() < calculateStealOnTurnoverProbability(defender.ratings?.stl || 50, defender.tendencies?.stealFreq || 50, defenseTeamStyle);
+        // Determine if it's a steal and by whom (weight by defensive steal attributes)
+        const stealBase = 0.55 * n0((defender.ratings?.stl || 45) / 75) * defMods.stlWeightMult;
+        const isSteal = Math.random() < Math.min(0.95, Math.max(0.15, stealBase));
 
         if (isSteal) {
           // Pick a stealer from defense roster weighted by steal/int/ath and archetype
@@ -4674,9 +4463,13 @@
         return;
       }
       
-      // STEP 2: Decide shot type using team style and player tendencies
-      const offenseTeamStyle = offenseTeam.style || {};
-      const shotType = selectShotType(offenseTeamStyle, ballHandler.tendencies || {});
+      // STEP 2: Decide shot type (87% of possessions result in shot attempt)
+      const rand = Math.random();
+      let shotType = '2pt';  // 2pt, '3pt', 'ft'
+      
+      if (rand < 0.23) shotType = '3pt';     // 23% threes
+      else if (rand < 0.28) shotType = 'ft'; // 5% direct FT
+      else shotType = '2pt';                  // 72% twos
       
       // STEP 3: Shot attempt with block chance on 2-pointers
       const shooter = shotType === '2pt' ? ballHandler : offenseRoster[randInt(0, offenseRoster.length - 1)];
@@ -4685,11 +4478,25 @@
       }
       const shooterStats = liveGame[statsKey][shooter.id];
       
-      // Block chance on 2-pointers and rim attempts using tendencies-driven calculation
-      if (shotType === 'rim' || shotType === 'drive') {
-        const blockProb = calculateBlockProbability(defender.ratings?.blk || 50, shooter.ratings?.[shotType === '3pt' ? 'tp' : 'mid'] || 50, defender.tendencies?.blockFreq || 50, shotType);
-        
-        if (Math.random() < blockProb) {
+      // Block chance on 2-pointers (rating + archetype + physicals)
+      if (shotType === '2pt') {
+        // Build weights for likely blockers from defense roster
+        const blkWeights = defenseRoster.map(p => {
+          const r = p.ratings || {};
+          const mods = getArchetypeMods(p.archetype);
+          const wingspan = n0(p.wingspanIn || 0);
+          const height = n0(p.heightIn || 0);
+          const physExt = 1 + Math.max(0, (wingspan - height) / 40);
+          return n0(( (r.blk || 30) * 0.6 + (r.ath || 40) * 0.25 + (r.inD || 40) * 0.15 ) * (mods.blkWeightMult || 1) * physExt);
+        });
+        const totalBlk = blkWeights.reduce((a,b)=>a+b,0) || 1;
+        // Estimate block probability relative to average blocking strength
+        const avgBlkStrength = totalBlk / blkWeights.length;
+        const defenderBlkStrength = blkWeights[defenseRoster.indexOf(defender)] || avgBlkStrength;
+        const baseBlock = 0.06;
+        const blockChance = Math.min(0.30, baseBlock * (defenderBlkStrength / Math.max(10, avgBlkStrength)) );
+
+        if (Math.random() < blockChance) {
           // pick actual blocker weighted
           let pick = Math.random() * totalBlk;
           let bi = 0;
@@ -4706,30 +4513,23 @@
         }
       }
       
-      // STEP 4: Determine make/miss using rating-based probability
-      // selectShotType returns '3pt', 'rim', 'mid', or 'drive' - map to rating key and attempt type
-      const ratingKey = shotType === '3pt' ? 'tp' : shotType === 'ft' ? 'ft' : 'mid'; // rm/mid/drive all use mid rating
-      const shooterRating = shooter.ratings?.[ratingKey] || 50;
-      const defenderRating = defender.ratings?.perD || 50;
-      
+      // STEP 4: Determine make/miss with realistic percentages
       let isMake = false;
+      const shooterRating = n0((shooter.ratings?.[shotType === '3pt' ? 'tp' : shotType === 'ft' ? 'ft' : 'mid'] || shooter.ovr) / 100) || 0.5;
+      const defenderDef = n0((defender.ratings?.perD || 50) / 100) || 0.5;
       
       if (shotType === '3pt') {
+        // 3P%: ~34% base
+        isMake = shooterRating * 0.80 + randInt(-12, 12) > defenderDef * 0.50 + randInt(-8, 8);
         shooterStats.tpa += 1;
-        isMake = Math.random() < calculateShotMakeProbability('3pt', shooterRating, defenderRating, shooter.archetype);
       } else if (shotType === 'ft') {
+        // FT%: ~77% base
+        isMake = Math.random() < (shooterRating * 0.90 + 0.10);
         shooterStats.fta += 1;
-        // FT make % based on rating
-        const ft_pct = 0.50 + n0((shooterRating - 50) / 200);
-        isMake = Math.random() < ft_pct;
-      } else if (shotType === 'rim' || shotType === 'drive') {
-        shooterStats.fga += 1;
-        // rim+drive shots are finishes around the basket
-        isMake = Math.random() < calculateShotMakeProbability('rim', shooterRating, defenderRating, shooter.archetype);
       } else {
-        // 'mid' shot type
+        // 2P%: ~48% base
+        isMake = shooterRating * 0.85 + randInt(-10, 10) > defenderDef * 0.55 + randInt(-8, 8);
         shooterStats.fga += 1;
-        isMake = Math.random() < calculateShotMakeProbability('mid', shooterRating, defenderRating, shooter.archetype);
       }
       
       // STEP 5: Track make/miss and score
@@ -4751,9 +4551,8 @@
         else liveGame.awayScore += pointsScored;
         applyScoringMeta(liveGame, offenseTid, pointsScored);
         
-        // STEP 6: Assist on made shots (weighted by assist tendency and passing rating)
-        const assistChance = Math.min(0.65, 0.25 + n0((ballHandler.ratings?.pas || 50) / 250) + n0((ballHandler.tendencies?.passFreq || 50) / 300));
-        if (Math.random() < assistChance && shooter.id !== ballHandler.id) {
+        // STEP 6: Assist on made shots (60% chance)
+        if (Math.random() < 0.60 && shooter.id !== ballHandler.id) {
           bhStats.ast += 1;
           const assist = `(Assist: ${ballHandler.firstName})`;
           const makeTexts = [
@@ -9584,95 +9383,6 @@
         });
       }
 
-      // === VALIDATION FUNCTION: Test simulation output ===
-      window.validateSimulation = async function() {
-        if (!state.league) {
-          console.log("No active league. Create one first.");
-          return;
-        }
-        
-        const totalGames = 10;
-        const stats = {};
-        
-        for (let g = 0; g < totalGames; g++) {
-          // Pick two random teams
-          const teams = state.league.teams;
-          const homeTeam = teams[Math.floor(Math.random() * teams.length)];
-          const awayTeam = teams[Math.floor(Math.random() * teams.length)];
-          if (homeTeam.id === awayTeam.id) continue; // Skip if same team
-          
-          // Simulate one game
-          const gameResult = simulateOneGame(state.league, homeTeam.id, awayTeam.id);
-          
-          // Aggregate team stats for validation
-          for (const teams of [gameResult.homeTeam, gameResult.awayTeam]) {
-            if (!stats[teams.id]) stats[teams.id] = { pts: 0, reb: 0, ast: 0, tov: 0, stl: 0, blk: 0, games: 0 };
-            stats[teams.id].pts += teams.seasonStats.pts || 0;
-            stats[teams.id].reb += (teams.seasonStats.oreb || 0) + (teams.seasonStats.dreb || 0);
-            stats[teams.id].ast += teams.seasonStats.ast || 0;
-            stats[teams.id].tov += teams.seasonStats.tov || 0;
-            stats[teams.id].stl += teams.seasonStats.stl || 0;
-            stats[teams.id].blk += teams.seasonStats.blk || 0;
-            stats[teams.id].games += 1;
-          }
-        }
-        
-        // Calculate per-game averages
-        const summaryStats = [];
-        for (const [tid, data] of Object.entries(stats)) {
-          const perGame = {
-            pts: safeDiv(data.pts, data.games),
-            reb: safeDiv(data.reb, data.games),
-            ast: safeDiv(data.ast, data.games),
-            tov: safeDiv(data.tov, data.games),
-            stl: safeDiv(data.stl, data.games),
-            blk: safeDiv(data.blk, data.games),
-          };
-          summaryStats.push({ team: tid, games: data.games, ...perGame });
-        }
-        
-        // Print validation report
-        console.log("=== VALIDATION REPORT ===");
-        console.log(`Simulated ${totalGames} games`);
-        console.log("Per-game averages (TARGET: PTS 95-125, REB 40-55, AST 20-32, TOV 11-17, STL 6-10, BLK 3-7):");
-        console.table(summaryStats);
-        
-        return summaryStats;
-      };
-
-      // === DEBUG FUNCTION: Check if players have tendencies ===
-      window.debugTendencies = function() {
-        if (!state.league || !state.league.players) {
-          console.log("❌ No league loaded");
-          return;
-        }
-        
-        console.log("\n🔍 TENDENCIES DEBUG REPORT\n");
-        console.log(`Total Players: ${state.league.players.length}`);
-        
-        const playersWithTendencies = state.league.players.filter(p => p.tendencies && p.tendencies.shot3Freq !== undefined);
-        const playersWithoutTendencies = state.league.players.filter(p => !p.tendencies || p.tendencies.shot3Freq === undefined);
-        
-        console.log(`✅ Players WITH tendencies: ${playersWithTendencies.length}`);
-        console.log(`❌ Players WITHOUT tendencies: ${playersWithoutTendencies.length}`);
-        
-        if (playersWithoutTendencies.length > 0) {
-          console.log("\n⚠️ Sample players WITHOUT tendencies:");
-          playersWithoutTendencies.slice(0, 3).forEach(p => {
-            console.log(`  - ${p.firstName} ${p.lastName} (${p.pos}): tendencies = ${JSON.stringify(p.tendencies)}`);
-          });
-        }
-        
-        if (playersWithTendencies.length > 0) {
-          console.log("\n✅ Sample player WITH tendencies:");
-          const sample = playersWithTendencies[0];
-          console.log(`  - ${sample.firstName} ${sample.lastName} (${sample.pos})`);
-          console.log(JSON.stringify(sample.tendencies, null, 2));
-        }
-        
-        return { withTendencies: playersWithTendencies.length, withoutTendencies: playersWithoutTendencies.length };
-      };
-
       // === Main App Initialization ===
       // Determine startup flow based on skip preference and current save
       function initializeAppFlow() {
@@ -9691,6 +9401,5 @@
 
     })();
   </script>
-  <script src="tendencies_ui.js"></script>
 </body>
 </html>
