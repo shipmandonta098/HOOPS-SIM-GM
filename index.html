@@ -6481,7 +6481,7 @@
       if (!window._watchHandlersSetup) {
         window._watchHandlersSetup = true;
         
-        document.addEventListener("click", (e) => {
+        document.addEventListener("click", async (e) => {
           // Play/Pause toggle
           if (e.target.closest('[data-action="watch-toggle"]')) {
             if (state.live.watch.isPlaying) {
