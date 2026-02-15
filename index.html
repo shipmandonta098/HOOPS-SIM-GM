@@ -2022,13 +2022,29 @@
     function getMinutesShare(teamId) {
       const rotations = state.league.rotations?.[teamId];
       if (!rotations || !rotations.minutes) {
-        // Fallback to OVR-based distribution
+        // Fallback to realistic NBA-style distribution
         const roster = state.league.players.filter(p => p.teamId === teamId).sort((a,b) => b.ovr - a.ovr);
-        const totalOvr = roster.reduce((s, p) => s + p.ovr, 0);
         const shareMap = {};
-        roster.forEach(p => {
-          shareMap[p.id] = (p.ovr / totalOvr) * 0.6 + 0.05; // Top heavy
-        });
+        
+        // Assign minutes in tiers
+        // Starters (0-4): 30-36 min each
+        for (let i = 0; i < Math.min(5, roster.length); i++) {
+          const mpg = 30 + randInt(0, 6); // 30-36 min
+          shareMap[roster[i].id] = mpg / 240;
+        }
+        
+        // 6th/7th man: 20-28 min each
+        for (let i = 5; i < Math.min(7, roster.length); i++) {
+          const mpg = 20 + randInt(0, 8); // 20-28 min
+          shareMap[roster[i].id] = mpg / 240;
+        }
+        
+        // Bench: 8-18 min each
+        for (let i = 7; i < roster.length; i++) {
+          const mpg = 8 + randInt(0, 10); // 8-18 min
+          shareMap[roster[i].id] = mpg / 240;
+        }
+        
         return shareMap;
       }
 
@@ -3525,57 +3541,61 @@
       // ~100 possessions per team per game
       const possessions = 100;
       
-      // FGA: 75–95 per team per game
-      const fga = 75 + randInt(0, 20);
+      // FGA: 80–95 per team per game (more realistic)
+      const fga = 80 + randInt(0, 15);
       
-      // 3PA: 20–35 per team per game
-      const tpa = 20 + randInt(0, 15);
+      // 3PA: 25–40 per team per game (increased from 20-35)
+      const tpa = 25 + randInt(0, 15);
       const twoPA = fga - tpa;
       
-      // FTA: 15–30 per team per game
-      const fta = 15 + randInt(0, 15);
+      // FTA: 18–30 per team per game (increased from 15-30)
+      const fta = 18 + randInt(0, 12);
       
       // ===== STEP 2: Calculate makes/misses with realistic shooting % =====
-      // 2P%: 46%, 3P%: 34%, FT%: 77%
-      const twopm = Math.round(twoPA * 0.46);
+      // 2P%: 47–49%, 3P%: 33–36%, FT%: 76–78%
+      const twopmPct = 0.47 + (randInt(0, 2) * 0.01);
+      const tpmPct = 0.33 + (randInt(0, 3) * 0.01);
+      const ftmPct = 0.76 + (randInt(0, 2) * 0.01);
+      
+      const twopm = Math.round(twoPA * twopmPct);
       const twopmiss = Math.max(0, twoPA - twopm);
       
-      const tpm = Math.round(tpa * 0.34);
+      const tpm = Math.round(tpa * tpmPct);
       const tpamiss = Math.max(0, tpa - tpm);
       
-      const ftm = Math.round(fta * 0.77);
+      const ftm = Math.round(fta * ftmPct);
       const ftamiss = Math.max(0, fta - ftm);
       
       const fgm = twopm + tpm;
       const fgmiss = twopmiss + tpamiss;
       
-      // Total points for team
-      const teamPts = Math.max(70, Math.round(twopm * 2 + tpm * 3 + ftm));
+      // Total points for team (target 100-125)
+      const teamPts = Math.max(100, Math.round(twopm * 2 + tpm * 3 + ftm));
       
       // ===== STEP 3: Calculate reboundable events and allocate ORBs/DRBs =====
       // Rebounds come from FG misses + FT misses
       const reboundableMisses = fgmiss + ftamiss;
       
-      // 28% are ORBs (25–30% range)
-      const orbs = Math.round(reboundableMisses * 0.28);
+      // 26% are ORBs (24–30% range)
+      const orbs = Math.round(reboundableMisses * 0.26);
       const drbs = Math.max(0, reboundableMisses - orbs);
-      const totalRebs = Math.max(0, orbs + drbs);
+      const totalRebs = Math.max(42, Math.round(orbs + drbs)); // Ensure 42–55 range
       
       // ===== STEP 4: Calculate assists =====
-      // 60% of FGM get assists (55–65% range)
-      const totalAsts = Math.round(fgm * 0.60);
+      // 63% of FGM get assists (55–70% range for more help)
+      const totalAsts = Math.round(fgm * 0.63);
       
       // ===== STEP 5: Calculate turnovers =====
-      // 13% of possessions (12–15% range)
-      const totalTovs = Math.round(possessions * 0.13);
+      // 14% of possessions (12–16% range)
+      const totalTovs = Math.round(possessions * 0.14);
       
       // ===== STEP 6: Calculate steals =====
-      // 60% of turnovers are live-ball steals
-      const totalStls = Math.round(totalTovs * 0.60);
+      // 63% of turnovers are live-ball steals (55–70% range)
+      const totalStls = Math.round(totalTovs * 0.63);
       
       // ===== STEP 7: Calculate blocks =====
-      // 6.5% of 2PT attempts (5–8% range)
-      const totalBlks = Math.round(twoPA * 0.065);
+      // 6.5% of 2PT attempts (4–8% range)
+      const totalBlks = Math.max(3, Math.round(twoPA * 0.065));
       
       // ===== STEP 8: Distribute per-player stats based on minutes and ratings =====
       roster.forEach(p => {
@@ -3607,15 +3627,39 @@
         
         const r = p.ratings || {};
         
-        // POINTS: Weighted by offensive rating and share
+        // USAGE WEIGHT: Stars get disproportionate shot attempts
+        // Usage = (DRB*0.15 + FIN*0.25 + MID*0.15 + 3PT*0.15 + IQ*0.05) * minutesShare
+        const drbR = n0((r.drb || 50) / 100);
+        const finR = n0((r.fin || 50) / 100);
+        const midR = n0((r.mid || 50) / 100);
+        const tpR = n0((r.tp || 50) / 100);
+        const iqR = n0((r.iq || 50) / 100);
+        const usageScore = (drbR * 0.15 + finR * 0.25 + midR * 0.15 + tpR * 0.15 + iqR * 0.05) * share;
+        
+        // Total usage weight across roster (for normalization)
+        const totalUsageWeight = roster.reduce((sum, pp) => {
+          if ((minutesShare[pp.id] || 0.05) <= 0) return sum;
+          const rr = pp.ratings || {};
+          const dr = n0((rr.drb || 50) / 100);
+          const fr = n0((rr.fin || 50) / 100);
+          const mr = n0((rr.mid || 50) / 100);
+          const tr = n0((rr.tp || 50) / 100);
+          const ir = n0((rr.iq || 50) / 100);
+          const sh = minutesShare[pp.id] || 0.05;
+          return sum + ((dr * 0.15 + fr * 0.25 + mr * 0.15 + tr * 0.15 + ir * 0.05) * sh);
+        }, 0.0001);
+        
+        // FGA: Weighted by usage (stars get more shots)
+        const playerFga = Math.round(fga * Math.max(0, usageScore / totalUsageWeight));
+        
+        // POINTS: Derived from FGA and efficiency
         const finRating = n0((r.fin || 50) / 100);
         const midRating = n0((r.mid || 50) / 100);
         const tpRating = n0((r.tp || 50) / 100);
         const offRating = (finRating * 0.35 + midRating * 0.30 + tpRating * 0.35);
-        const playerPts = Math.round(teamPts * share * (0.6 + offRating * 0.5));
-        
-        // FGA: Proportional to share and offensive rating
-        const playerFga = Math.round(fga * share * (0.7 + offRating * 0.4));
+        // Efficiency multiplier: good scorers convert better
+        const effMult = 0.8 + (offRating * 0.4);
+        const playerPts = Math.round(playerFga * 0.46 * 2 * effMult * (randInt(95, 105) / 100)); // Realistic PPP ~1.0-1.15
         const playerFgm = Math.round(playerFga * 0.46);
         
         // 3PA: 25–35% of FGA (player dependent)
@@ -7009,8 +7053,9 @@
       
       // LEAGUE LEADERS: Get top 10 for each stat
       function getLeaders(statField, descriptor) {
+        // Minimum 3 games played for realistic leaders
         return playersData
-          .filter(p => getStats(p).gp > 0)
+          .filter(p => getStats(p).gp >= 3 || (playersData.filter(x => getStats(x).gp >= 3).length === 0 && getStats(p).gp > 0))
           .map(p => {
             const s = getStats(p);
             let value;
@@ -7135,7 +7180,7 @@
             <div class="bd">
               <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:16px;">
                 <div style="border:1px solid rgba(96,165,250,.2); border-radius:10px; padding:12px; background:rgba(96,165,250,.03);">
-                  <div style="font-weight:600; margin-bottom:12px; color:var(--accent); font-size:13px;">Points Per Game</div>
+                  <div style="font-weight:600; margin-bottom:12px; color:var(--accent); font-size:13px;">Points Per Game <span style="font-size:11px; color:#888; font-weight:400;">(3+ GP)</span></div>
                   ${getLeaders('ppg', 'PPG')}
                 </div>
                 <div style="border:1px solid rgba(52,211,153,.2); border-radius:10px; padding:12px; background:rgba(52,211,153,.03);">
@@ -7189,14 +7234,14 @@
                     <tr style="border-bottom:1px solid var(--line); transition:.15s;" onmouseover="this.style.background='rgba(96,165,250,.05)'" onmouseout="this.style.background='transparent'">
                       <td style="padding:10px; font-weight:600;">${t.abbrev} ${t.name}</td>
                       <td style="padding:10px; text-align:center;">${t.stats.gp}</td>
-                      <td style="padding:10px; text-align:center; color:var(--good); font-weight:600;">${t.ppg}</td>
+                      <td style="padding:10px; text-align:center; color:var(--good); font-weight:600;">${(t.ppg || 0).toFixed(1)}</td>
                       <td style="padding:10px; text-align:center;">${t.fgPct}%</td>
                       <td style="padding:10px; text-align:center;">${t.tpPct}%</td>
                       <td style="padding:10px; text-align:center;">${t.ftPct}%</td>
-                      <td style="padding:10px; text-align:center;">${perGame(t.stats.reb, t.stats.gp)}</td>
-                      <td style="padding:10px; text-align:center;">${perGame(t.stats.ast, t.stats.gp)}</td>
-                      <td style="padding:10px; text-align:center; color:var(--bad);">${perGame(t.stats.tov, t.stats.gp)}</td>
-                      <td style="padding:10px; text-align:center; color:#f87171; font-weight:600;">${t.oppPpg}</td>
+                      <td style="padding:10px; text-align:center;">${(perGame(t.stats.reb, t.stats.gp)).toFixed(1)}</td>
+                      <td style="padding:10px; text-align:center;">${(perGame(t.stats.ast, t.stats.gp)).toFixed(1)}</td>
+                      <td style="padding:10px; text-align:center; color:var(--bad);">${(perGame(t.stats.tov, t.stats.gp)).toFixed(1)}</td>
+                      <td style="padding:10px; text-align:center; color:#f87171; font-weight:600;">${(t.oppPpg || 0).toFixed(1)}</td>
                       <td style="padding:10px; text-align:center; color:#f87171;">${t.oppFgPct}%</td>
                       <td style="padding:10px; text-align:center; color:#f87171;">${t.oppTpPct}%</td>
                       <td style="padding:10px; text-align:center; color:#f87171;">${t.oppFtPct}%</td>
