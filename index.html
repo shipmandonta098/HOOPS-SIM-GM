@@ -6585,6 +6585,35 @@
       const t = n0(tov);
       return t > 0 ? a / t : (a > 0 ? 999.9 : 0);
     }
+
+    // Global stat helpers (available in all views)
+    function getStats(player) {
+      if (!player.stats) {
+        player.stats = { gp: 0, min: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 };
+      }
+      return player.stats;
+    }
+
+    function perGame(value, gp) {
+      const val = n0(value);
+      const g = n0(gp);
+      return safeDiv(val, g).toFixed(1);
+    }
+
+    function percentage(made, attempt) {
+      const m = n0(made);
+      const a = n0(attempt);
+      return safePct(m, a).toFixed(1);
+    }
+
+    function formatStat(value, decimals = 1) {
+      if (!Number.isFinite(value)) return '—';
+      return parseFloat(value).toFixed(decimals);
+    }
+
+    function getTeamStat(teamId) {
+      return state.league.teams.find(t => t.id === teamId);
+    }
     
     // Aggregate lineups from game stats
     function aggregateLineupsFromGame(game, teamsData) {
@@ -6637,38 +6666,6 @@
       const teamsData = state.league.teams || [];
       const playersData = state.league.players || [];
       
-      // Helper to ensure stats object
-      function getStats(player) {
-        if (!player.stats) {
-          player.stats = { gp: 0, min: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 };
-        }
-        return player.stats;
-      }
-      
-      // Calculate per-game values (safe - no NaN)
-      function perGame(value, gp) {
-        const val = n0(value);
-        const g = n0(gp);
-        return safeDiv(val, g).toFixed(1);
-      }
-      
-      function percentage(made, attempt) {
-        const m = n0(made);
-        const a = n0(attempt);
-        return safePct(m, a).toFixed(1);
-      }
-      
-      // Format stat value - display "—" if NaN or invalid
-      function formatStat(value, decimals = 1) {
-        if (!Number.isFinite(value)) return '—';
-        return parseFloat(value).toFixed(decimals);
-      }
-      
-      // Get team function
-      function getTeam(teamId) {
-        return teamsData.find(t => t.id === teamId);
-      }
-      
       // LEAGUE LEADERS: Get top 10 for each stat
       function getLeaders(statField, descriptor) {
         return playersData
@@ -6689,7 +6686,7 @@
           .map((p, i) => `
             <div style="padding:8px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; cursor:pointer; transition:.15s;" class="playerRow" data-player-id="${p.id}" onmouseover="this.style.background='rgba(96,165,250,.1)'" onmouseout="this.style.background='transparent'">
               <div style="flex:1;"><strong style="color:var(--good);">${i + 1}.</strong> ${p.firstName} ${p.lastName}</div>
-              <div style="flex:0.4; text-align:right; color:var(--muted); font-size:11px;">${getTeam(p.teamId)?.abbrev || '—'}</div>
+              <div style="flex:0.4; text-align:right; color:var(--muted); font-size:11px;">${teamsData.find(t => t.id === p.teamId)?.abbrev || '—'}</div>
               <div style="flex:0.3; text-align:right; color:var(--accent); font-weight:600;">${p.sortValue.toFixed(1)}</div>
             </div>
           `)
@@ -6759,7 +6756,7 @@
           })
           .map(p => {
             const splitStats = (p.splits && p.splits[splitKey]) || getStats(p);
-            const team = getTeam(p.teamId);
+            const team = teamsData.find(t => t.id === p.teamId);
             const efg = computeEFG(splitStats.fgm, splitStats.fga, splitStats.tpm) * 100;
             const ts = computeTS(splitStats.pts, splitStats.fga, splitStats.fta) * 100;
             const astto = computeASTTOV(splitStats.ast, splitStats.tov);
