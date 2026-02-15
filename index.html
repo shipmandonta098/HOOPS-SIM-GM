@@ -1206,8 +1206,9 @@
      *   v1: Core structure (meta, teams, players, log)
      *   v10: Schedule generation
      *   v11: Lineup tracking system (possession-level aggregation)
+     *   v12: Team opponent stats tracking (oppPts, oppFGM/A, etc.)
      **********************/
-    const CURRENT_SCHEMA_VERSION = 11;
+    const CURRENT_SCHEMA_VERSION = 12;
     const inMemorySaves = [];
     const inMemoryLeagues = {};
 
@@ -2633,6 +2634,15 @@
       league.lineups = {};
       teams.forEach(team => {
         league.lineups[team.id] = {};
+        
+        // Initialize season stats including opponent tracking
+        team.season = {
+          gp: 0,
+          pts: 0, fgm: 0, fga: 0, tpm: 0, tpa: 0, ftm: 0, fta: 0,
+          reb: 0, ast: 0, tov: 0, stl: 0, blk: 0,
+          oppPts: 0, oppFGM: 0, oppFGA: 0, opp3PM: 0, opp3PA: 0,
+          oppFTM: 0, oppFTA: 0, oppREB: 0, oppAST: 0, oppTOV: 0, oppSTL: 0, oppBLK: 0
+        };
       });
 
       return league;
@@ -2958,6 +2968,28 @@
             v = 11;
             league.schemaVersion = 11;
             console.log("[Migration] ✓ v10 → v11 complete");
+          
+          } else if (v === 11) {
+            // v11 → v12: Initialize opponent stats tracking for teams
+            console.log("[Migration] Applying v11 → v12: Initializing opponent stats tracking");
+            
+            league.teams = league.teams || [];
+            
+            league.teams.forEach(team => {
+              if (!team.season) {
+                team.season = {
+                  gp: 0,
+                  pts: 0, fgm: 0, fga: 0, tpm: 0, tpa: 0, ftm: 0, fta: 0,
+                  reb: 0, ast: 0, tov: 0, stl: 0, blk: 0,
+                  oppPts: 0, oppFGM: 0, oppFGA: 0, opp3PM: 0, opp3PA: 0,
+                  oppFTM: 0, oppFTA: 0, oppREB: 0, oppAST: 0, oppTOV: 0, oppSTL: 0, oppBLK: 0
+                };
+              }
+            });
+            
+            v = 12;
+            league.schemaVersion = 12;
+            console.log("[Migration] ✓ v11 → v12 complete");
           }
           
           else {
@@ -3547,6 +3579,119 @@
     }
 
     /**
+     * Calculate team box score totals from game box stats
+     * Returns {pts, fgm, fga, tpm, tpa, ftm, fta, reb, ast, tov, stl, blk}
+     */
+    function calculateBoxTotals(boxStats) {
+      const totals = {
+        pts: 0, fgm: 0, fga: 0, tpm: 0, tpa: 0, ftm: 0, fta: 0,
+        reb: 0, ast: 0, tov: 0, stl: 0, blk: 0
+      };
+      
+      for (const playerId in boxStats) {
+        const pStats = boxStats[playerId];
+        totals.pts += pStats.pts || 0;
+        totals.fgm += pStats.fgm || 0;
+        totals.fga += pStats.fga || 0;
+        totals.tpm += pStats.tpm || 0;
+        totals.tpa += pStats.tpa || 0;
+        totals.ftm += pStats.ftm || 0;
+        totals.fta += pStats.fta || 0;
+        totals.reb += pStats.reb || 0;
+        totals.ast += pStats.ast || 0;
+        totals.tov += pStats.tov || 0;
+        totals.stl += pStats.stl || 0;
+        totals.blk += pStats.blk || 0;
+      }
+      
+      return totals;
+    }
+
+    /**
+     * Accumulate team season stats from a finalized game
+     * Updates both team.season stats and opponent stats
+     */
+    function accumulateTeamSeasonStats(homeTeam, awayTeam, homeTotals, awayTotals) {
+      // Ensure season objects exist
+      if (!homeTeam.season) {
+        homeTeam.season = {
+          gp: 0,
+          pts: 0, fgm: 0, fga: 0, tpm: 0, tpa: 0, ftm: 0, fta: 0,
+          reb: 0, ast: 0, tov: 0, stl: 0, blk: 0,
+          oppPts: 0, oppFGM: 0, oppFGA: 0, opp3PM: 0, opp3PA: 0,
+          oppFTM: 0, oppFTA: 0, oppREB: 0, oppAST: 0, oppTOV: 0, oppSTL: 0, oppBLK: 0
+        };
+      }
+      if (!awayTeam.season) {
+        awayTeam.season = {
+          gp: 0,
+          pts: 0, fgm: 0, fga: 0, tpm: 0, tpa: 0, ftm: 0, fta: 0,
+          reb: 0, ast: 0, tov: 0, stl: 0, blk: 0,
+          oppPts: 0, oppFGM: 0, oppFGA: 0, opp3PM: 0, opp3PA: 0,
+          oppFTM: 0, oppFTA: 0, oppREB: 0, oppAST: 0, oppTOV: 0, oppSTL: 0, oppBLK: 0
+        };
+      }
+      
+      // Increment games played
+      homeTeam.season.gp += 1;
+      awayTeam.season.gp += 1;
+      
+      // Update home team stats
+      homeTeam.season.pts += homeTotals.pts;
+      homeTeam.season.fgm += homeTotals.fgm;
+      homeTeam.season.fga += homeTotals.fga;
+      homeTeam.season.tpm += homeTotals.tpm;
+      homeTeam.season.tpa += homeTotals.tpa;
+      homeTeam.season.ftm += homeTotals.ftm;
+      homeTeam.season.fta += homeTotals.fta;
+      homeTeam.season.reb += homeTotals.reb;
+      homeTeam.season.ast += homeTotals.ast;
+      homeTeam.season.tov += homeTotals.tov;
+      homeTeam.season.stl += homeTotals.stl;
+      homeTeam.season.blk += homeTotals.blk;
+      
+      // Update away team stats
+      awayTeam.season.pts += awayTotals.pts;
+      awayTeam.season.fgm += awayTotals.fgm;
+      awayTeam.season.fga += awayTotals.fga;
+      awayTeam.season.tpm += awayTotals.tpm;
+      awayTeam.season.tpa += awayTotals.tpa;
+      awayTeam.season.ftm += awayTotals.ftm;
+      awayTeam.season.fta += awayTotals.fta;
+      awayTeam.season.reb += awayTotals.reb;
+      awayTeam.season.ast += awayTotals.ast;
+      awayTeam.season.tov += awayTotals.tov;
+      awayTeam.season.stl += awayTotals.stl;
+      awayTeam.season.blk += awayTotals.blk;
+      
+      // Update opponent stats
+      homeTeam.season.oppPts += awayTotals.pts;
+      homeTeam.season.oppFGM += awayTotals.fgm;
+      homeTeam.season.oppFGA += awayTotals.fga;
+      homeTeam.season.opp3PM += awayTotals.tpm;
+      homeTeam.season.opp3PA += awayTotals.tpa;
+      homeTeam.season.oppFTM += awayTotals.ftm;
+      homeTeam.season.oppFTA += awayTotals.fta;
+      homeTeam.season.oppREB += awayTotals.reb;
+      homeTeam.season.oppAST += awayTotals.ast;
+      homeTeam.season.oppTOV += awayTotals.tov;
+      homeTeam.season.oppSTL += awayTotals.stl;
+      homeTeam.season.oppBLK += awayTotals.blk;
+      
+      awayTeam.season.oppPts += homeTotals.pts;
+      awayTeam.season.oppFGM += homeTotals.fgm;
+      awayTeam.season.oppFGA += homeTotals.fga;
+      awayTeam.season.opp3PM += homeTotals.tpm;
+      awayTeam.season.opp3PA += homeTotals.tpa;
+      awayTeam.season.oppFTM += homeTotals.ftm;
+      awayTeam.season.oppFTA += homeTotals.fta;
+      awayTeam.season.oppREB += homeTotals.reb;
+      awayTeam.season.oppAST += homeTotals.ast;
+      awayTeam.season.oppTOV += homeTotals.tov;
+      awayTeam.season.oppSTL += homeTotals.stl;
+      awayTeam.season.oppBLK += homeTotals.blk;
+    }
+
      * Initialize live game object for watching
      */
     /**
@@ -3686,6 +3831,11 @@
           });
         }
       }
+
+      // Calculate and accumulate team season stats
+      const homeTotals = calculateBoxTotals(liveGame.homeStats);
+      const awayTotals = calculateBoxTotals(liveGame.awayStats);
+      accumulateTeamSeasonStats(homeTeam, awayTeam, homeTotals, awayTotals);
 
       return true;
     }
@@ -4979,6 +5129,38 @@
         game.played = true;
         game.homeScore = result.homeScore || 0;
         game.awayScore = result.awayScore || 0;
+        
+        // For simulated games without detailed box stats, accumulate basic team season stats
+        // Estimate box totals from final scores (50% from 2pt, 30% from 3pt, 20% from FT)
+        const homePoints = game.homeScore;
+        const awayPoints = game.awayScore;
+        
+        // Rough estimation based on typical game distributions
+        const homeFGM = Math.round(homePoints * 0.4);
+        const homeFGA = Math.round(homeFGM * 1.3);
+        const home3PM = Math.round(homePoints * 0.15);
+        const home3PA = Math.round(home3PM * 1.6);
+        const homeFTM = Math.round(homePoints * 0.15);
+        const homeFTA = Math.round(homeFTM * 1.25);
+        
+        const awayFGM = Math.round(awayPoints * 0.4);
+        const awayFGA = Math.round(awayFGM * 1.3);
+        const away3PM = Math.round(awayPoints * 0.15);
+        const away3PA = Math.round(away3PM * 1.6);
+        const awayFTM = Math.round(awayPoints * 0.15);
+        const awayFTA = Math.round(awayFTM * 1.25);
+        
+        // Accumulate team season stats
+        const homeTotals = {
+          pts: homePoints, fgm: homeFGM, fga: homeFGA, tpm: home3PM, tpa: home3PA, ftm: homeFTM, fta: homeFTA,
+          reb: randInt(30, 50), ast: randInt(15, 30), tov: randInt(8, 18), stl: randInt(3, 10), blk: randInt(2, 8)
+        };
+        const awayTotals = {
+          pts: awayPoints, fgm: awayFGM, fga: awayFGA, tpm: away3PM, tpa: away3PA, ftm: awayFTM, fta: awayFTA,
+          reb: randInt(30, 50), ast: randInt(15, 30), tov: randInt(8, 18), stl: randInt(3, 10), blk: randInt(2, 8)
+        };
+        
+        accumulateTeamSeasonStats(homeTeam, awayTeam, homeTotals, awayTotals);
         
         gameSummaries.push(result);
       });
@@ -6493,13 +6675,22 @@
                 ftm: acc.ftm + ps.ftm
               };
             }, { gp: 0, pts: 0, reb: 0, ast: 0, tov: 0, fga: 0, fgm: 0, tpa: 0, tpm: 0, fta: 0, ftm: 0 });
+            
+            // Get opponent stats from team.season if available
+            const seasonStats = team.season || {};
+            const oppGp = seasonStats.gp || 0;
+            
             return {
               ...team,
               stats,
               ppg: perGame(stats.pts, stats.gp),
               fgPct: percentage(stats.fgm, stats.fga),
               tpPct: percentage(stats.tpm, stats.tpa),
-              ftPct: percentage(stats.ftm, stats.fta)
+              ftPct: percentage(stats.ftm, stats.fta),
+              oppPpg: perGame(seasonStats.oppPts, oppGp),
+              oppFgPct: percentage(seasonStats.oppFGM, seasonStats.oppFGA),
+              oppTpPct: percentage(seasonStats.opp3PM, seasonStats.opp3PA),
+              oppFtPct: percentage(seasonStats.oppFTM, seasonStats.oppFTA)
             };
           })
           .sort((a, b) => parseFloat(b.ppg) - parseFloat(a.ppg));
@@ -6607,6 +6798,10 @@
                     <th style="padding:10px; text-align:center; font-weight:600;">REB</th>
                     <th style="padding:10px; text-align:center; font-weight:600;">AST</th>
                     <th style="padding:10px; text-align:center; font-weight:600;">TOV</th>
+                    <th style="padding:10px; text-align:center; font-weight:600; color:#f87171;">Opp PPG</th>
+                    <th style="padding:10px; text-align:center; font-weight:600; color:#f87171;">Opp FG%</th>
+                    <th style="padding:10px; text-align:center; font-weight:600; color:#f87171;">Opp 3P%</th>
+                    <th style="padding:10px; text-align:center; font-weight:600; color:#f87171;">Opp FT%</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -6621,6 +6816,10 @@
                       <td style="padding:10px; text-align:center;">${perGame(t.stats.reb, t.stats.gp)}</td>
                       <td style="padding:10px; text-align:center;">${perGame(t.stats.ast, t.stats.gp)}</td>
                       <td style="padding:10px; text-align:center; color:var(--bad);">${perGame(t.stats.tov, t.stats.gp)}</td>
+                      <td style="padding:10px; text-align:center; color:#f87171; font-weight:600;">${t.oppPpg}</td>
+                      <td style="padding:10px; text-align:center; color:#f87171;">${t.oppFgPct}%</td>
+                      <td style="padding:10px; text-align:center; color:#f87171;">${t.oppTpPct}%</td>
+                      <td style="padding:10px; text-align:center; color:#f87171;">${t.oppFtPct}%</td>
                     </tr>
                   `).join('')}
                 </tbody>
@@ -6949,6 +7148,27 @@
                 <div class="kpi"><div class="label">Defense</div><div class="value">${defenseRating}</div><div class="delta">Positional</div></div>
                 <div class="kpi"><div class="label">Overall</div><div class="value">${overallRating}</div><div class="delta">Top 3 Avg</div></div>
               </div>
+            </div>
+          </div>
+
+          <!-- Defense Stats -->
+          <div class="card">
+            <div class="hd"><h3>Defense</h3></div>
+            <div class="bd">
+              ${(() => {
+                const season = team.season || {};
+                const gp = season.gp || 0;
+                const oppPpg = perGame(season.oppPts, gp);
+                const oppFgPct = percentage(season.oppFGM, season.oppFGA);
+                const oppTpPct = percentage(season.opp3PM, season.opp3PA);
+                return `
+                  <div class="kpis">
+                    <div class="kpi"><div class="label">Opp PPG</div><div class="value" style="color: #f87171;">${oppPpg}</div><div class="delta">Per Game</div></div>
+                    <div class="kpi"><div class="label">Opp FG%</div><div class="value" style="color: #f87171;">${oppFgPct}%</div><div class="delta">Allowed</div></div>
+                    <div class="kpi"><div class="label">Opp 3P%</div><div class="value" style="color: #f87171;">${oppTpPct}%</div><div class="delta">Allowed</div></div>
+                  </div>
+                `;
+              })()}
             </div>
           </div>
 
