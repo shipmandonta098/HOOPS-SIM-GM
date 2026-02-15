@@ -9575,6 +9575,62 @@
         });
       }
 
+      // === VALIDATION FUNCTION: Test simulation output ===
+      window.validateSimulation = async function() {
+        if (!state.league) {
+          console.log("No active league. Create one first.");
+          return;
+        }
+        
+        const totalGames = 10;
+        const stats = {};
+        
+        for (let g = 0; g < totalGames; g++) {
+          // Pick two random teams
+          const teams = state.league.teams;
+          const homeTeam = teams[Math.floor(Math.random() * teams.length)];
+          const awayTeam = teams[Math.floor(Math.random() * teams.length)];
+          if (homeTeam.id === awayTeam.id) continue; // Skip if same team
+          
+          // Simulate one game
+          const gameResult = simulateOneGame(state.league, homeTeam.id, awayTeam.id);
+          
+          // Aggregate team stats for validation
+          for (const teams of [gameResult.homeTeam, gameResult.awayTeam]) {
+            if (!stats[teams.id]) stats[teams.id] = { pts: 0, reb: 0, ast: 0, tov: 0, stl: 0, blk: 0, games: 0 };
+            stats[teams.id].pts += teams.seasonStats.pts || 0;
+            stats[teams.id].reb += (teams.seasonStats.oreb || 0) + (teams.seasonStats.dreb || 0);
+            stats[teams.id].ast += teams.seasonStats.ast || 0;
+            stats[teams.id].tov += teams.seasonStats.tov || 0;
+            stats[teams.id].stl += teams.seasonStats.stl || 0;
+            stats[teams.id].blk += teams.seasonStats.blk || 0;
+            stats[teams.id].games += 1;
+          }
+        }
+        
+        // Calculate per-game averages
+        const summaryStats = [];
+        for (const [tid, data] of Object.entries(stats)) {
+          const perGame = {
+            pts: safeDiv(data.pts, data.games),
+            reb: safeDiv(data.reb, data.games),
+            ast: safeDiv(data.ast, data.games),
+            tov: safeDiv(data.tov, data.games),
+            stl: safeDiv(data.stl, data.games),
+            blk: safeDiv(data.blk, data.games),
+          };
+          summaryStats.push({ team: tid, games: data.games, ...perGame });
+        }
+        
+        // Print validation report
+        console.log("=== VALIDATION REPORT ===");
+        console.log(`Simulated ${totalGames} games`);
+        console.log("Per-game averages (TARGET: PTS 95-125, REB 40-55, AST 20-32, TOV 11-17, STL 6-10, BLK 3-7):");
+        console.table(summaryStats);
+        
+        return summaryStats;
+      };
+
       // === Main App Initialization ===
       // Determine startup flow based on skip preference and current save
       function initializeAppFlow() {
