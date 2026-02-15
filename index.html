@@ -9635,6 +9635,39 @@
         return summaryStats;
       };
 
+      // === DEBUG FUNCTION: Check if players have tendencies ===
+      window.debugTendencies = function() {
+        if (!state.league || !state.league.players) {
+          console.log("❌ No league loaded");
+          return;
+        }
+        
+        console.log("\n🔍 TENDENCIES DEBUG REPORT\n");
+        console.log(`Total Players: ${state.league.players.length}`);
+        
+        const playersWithTendencies = state.league.players.filter(p => p.tendencies && p.tendencies.shot3Freq !== undefined);
+        const playersWithoutTendencies = state.league.players.filter(p => !p.tendencies || p.tendencies.shot3Freq === undefined);
+        
+        console.log(`✅ Players WITH tendencies: ${playersWithTendencies.length}`);
+        console.log(`❌ Players WITHOUT tendencies: ${playersWithoutTendencies.length}`);
+        
+        if (playersWithoutTendencies.length > 0) {
+          console.log("\n⚠️ Sample players WITHOUT tendencies:");
+          playersWithoutTendencies.slice(0, 3).forEach(p => {
+            console.log(`  - ${p.firstName} ${p.lastName} (${p.pos}): tendencies = ${JSON.stringify(p.tendencies)}`);
+          });
+        }
+        
+        if (playersWithTendencies.length > 0) {
+          console.log("\n✅ Sample player WITH tendencies:");
+          const sample = playersWithTendencies[0];
+          console.log(`  - ${sample.firstName} ${sample.lastName} (${sample.pos})`);
+          console.log(JSON.stringify(sample.tendencies, null, 2));
+        }
+        
+        return { withTendencies: playersWithTendencies.length, withoutTendencies: playersWithoutTendencies.length };
+      };
+
       // === Main App Initialization ===
       // Determine startup flow based on skip preference and current save
       function initializeAppFlow() {

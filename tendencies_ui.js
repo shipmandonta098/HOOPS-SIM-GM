@@ -29,12 +29,23 @@
       
       // Get player data
       const p = window.state && window.state.league ? window.state.league.players.find(x => x.id === playerId) : null;
-      if (!p || !p.tendencies || p.tendencies.shot3Freq === undefined) {
-        // No tendencies data, return original
+      if (!p) {
+        console.warn('[Tendencies UI] Player not found:', playerId);
         return originalHTML;
       }
       
-      // Inject tendencies section before closing </div> of .bd div
+      if (!p.tendencies) {
+        console.warn('[Tendencies UI] No tendencies on player:', p.firstName, p.lastName);
+        return originalHTML;
+      }
+      
+      if (p.tendencies.shot3Freq === undefined) {
+        console.warn('[Tendencies UI] Tendencies not initialized for player:', p.firstName, p.lastName);
+        console.log('Tendencies object:', p.tendencies);
+        return originalHTML;
+      }
+      
+      // Inject tendencies section into HTML
       const tendenciesHTML = `
             <div style="margin-top:14px; padding-top:14px; border-top:1px solid var(--line);">
               <h4 style="margin-bottom:8px; font-weight:600; color:var(--accent);">Player Tendencies (0–100)</h4>
@@ -55,10 +66,27 @@
             </div>
           `;
       
-      // Insert before closing </div></div>
-      return originalHTML.replace(/<\/div>\s*<\/div>\s*<\/div>\s*$/m, tendenciesHTML + '\n          </div>\n        </div>\n      </div>');
+      // Try multiple patterns to find the right insertion point
+      // Pattern 1: Look for last </div> closing
+      let result = originalHTML.replace(/(\s*)<\/div>\s*<\/div>\s*<\/div>\s*$/m, tendenciesHTML + '$1</div>\n        </div>\n      </div>');
+      
+      if (result === originalHTML) {
+        // Pattern didn't match, try simpler approach: insert before last `</div></div></div>`
+        const lastDivIndex = originalHTML.lastIndexOf('</div>\n        </div>\n      </div>');
+        if (lastDivIndex !== -1) {
+          result = originalHTML.substring(0, lastDivIndex) + tendenciesHTML + originalHTML.substring(lastDivIndex);
+          console.log('[Tendencies UI] Injected using position-based method');
+        } else {
+          console.warn('[Tendencies UI] Could not find insertion point in HTML');
+          return originalHTML;
+        }
+      } else {
+        console.log('[Tendencies UI] Injected using regex method');
+      }
+      
+      return result;
     };
     
-    console.log('[Tendencies UI] Successfully injected tendencies display');
+    console.log('[Tendencies UI] Successfully patched playerDetailCard function');
   }, 100);
 })();
