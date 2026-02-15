@@ -5603,7 +5603,7 @@
                   Season ${lg.season}, Day ${lg.day}
                 </div>
               </div>
-              <button id="watchExitBtn" style="background: #444; border: 1px solid #666; color: #fff; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 12px;">✕ Exit</button>
+              <button id="watchExitBtn" data-action="watch-exit" style="background: #444; border: 1px solid #666; color: #fff; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 12px;">✕ Exit</button>
             </div>
 
             <!-- Scoreboard and Leaders -->
@@ -6466,14 +6466,84 @@
         // Render modal HTML (only once or when game changes)
         modalRoot.innerHTML = viewWatchGame();
         updateWatchGameUI();
-
-        // EXIT BUTTON
-        const exitBtn = document.getElementById("watchExitBtn");
-        if (exitBtn) {
-          exitBtn.addEventListener("click", async () => {
-            stopWatchLoop();
+      } else {
+        // Clean up: stop timer and remove modal
+        if (state.live.watch.isOpen) {
+          stopWatchLoop();
+          state.live.watch.isOpen = false;
+        }
+        const modalRoot = document.getElementById("watchGameModalRoot");
+        if (modalRoot) modalRoot.remove();
+      }
+      
+      // EVENT DELEGATION: Use bubbling for all watch controls
+      // Attach once at document level in a separate handler setup
+      if (!window._watchHandlersSetup) {
+        window._watchHandlersSetup = true;
+        
+        document.addEventListener("click", (e) => {
+          // Play/Pause toggle
+          if (e.target.closest('[data-action="watch-toggle"]')) {
+            if (state.live.watch.isPlaying) {
+              stopWatchLoop();
+            } else {
+              startWatchLoop();
+            }
+            const modal = document.getElementById("watchGameModalRoot");
+            if (modal) {
+              updateWatchControls();
+            }
+          }
+          
+          // View toggle (pbp, box, compare)
+          if (e.target.closest('[data-action="watch-view"]')) {
+            const btn = e.target.closest('[data-action="watch-view"]');
+            const newView = btn.dataset.view;
+            setWatchView(newView);
             
-            // Save game result to schedule
+            // Re-render modal to update view toggle buttons
+            const modal = document.getElementById("watchGameModalRoot");
+            if (modal) {
+              modal.innerHTML = viewWatchGame();
+              updateWatchGameUI();
+            }
+          }
+          
+          // Speed control
+          if (e.target.closest('[data-action="watch-speed"]')) {
+            const btn = e.target.closest('[data-action="watch-speed"]');
+            const newSpeed = parseFloat(btn.dataset.speed);
+            state.live.watch.speed = newSpeed;
+            state.live.watch.possessionsPerTick = Math.max(1, Math.round(newSpeed));
+            
+            // Restart loop with new speed if playing
+            if (state.live.watch.isPlaying) {
+              stopWatchLoop();
+              startWatchLoop();
+            }
+            
+            // Re-render modal to update speed buttons
+            const modal = document.getElementById("watchGameModalRoot");
+            if (modal) {
+              modal.innerHTML = viewWatchGame();
+              updateWatchGameUI();
+            }
+          }
+          
+          // Sim to End button
+          if (e.target.closest('[data-action="watch-sim-end"]')) {
+            const lg = state.ui.liveGame;
+            if (lg) {
+              stopWatchLoop();
+              while (!lg.isFinal) {
+                playNextPossession(lg);
+              }
+              updateWatchGameUI();
+            }
+          }
+          
+          // Exit button
+          if (e.target.closest('[data-action="watch-exit"]')) {
             const lg = state.ui.liveGame;
             const schedule = state.league.schedule;
             const game = schedule.games.find(g => g.id === lg.gameId);
@@ -6552,82 +6622,6 @@
             await saveCurrentLeague();
             render();
             showBanner("success", "✓ Game saved");
-          });
-        }
-      } else {
-        // Clean up: stop timer and remove modal
-        if (state.live.watch.isOpen) {
-          stopWatchLoop();
-          state.live.watch.isOpen = false;
-        }
-        const modalRoot = document.getElementById("watchGameModalRoot");
-        if (modalRoot) modalRoot.remove();
-      }
-      
-      // EVENT DELEGATION: Use bubbling for all watch controls
-      // Attach once at document level in a separate handler setup
-      if (!window._watchHandlersSetup) {
-        window._watchHandlersSetup = true;
-        
-        document.addEventListener("click", (e) => {
-          // Play/Pause toggle
-          if (e.target.closest('[data-action="watch-toggle"]')) {
-            if (state.live.watch.isPlaying) {
-              stopWatchLoop();
-            } else {
-              startWatchLoop();
-            }
-            const modal = document.getElementById("watchGameModalRoot");
-            if (modal) {
-              updateWatchControls();
-            }
-          }
-          
-          // View toggle (pbp, box, compare)
-          if (e.target.closest('[data-action="watch-view"]')) {
-            const btn = e.target.closest('[data-action="watch-view"]');
-            const newView = btn.dataset.view;
-            setWatchView(newView);
-            
-            // Re-render modal to update view toggle buttons
-            const modal = document.getElementById("watchGameModalRoot");
-            if (modal) {
-              modal.innerHTML = viewWatchGame();
-              updateWatchGameUI();
-            }
-          }
-          
-          // Speed control
-          if (e.target.closest('[data-action="watch-speed"]')) {
-            const btn = e.target.closest('[data-action="watch-speed"]');
-            const newSpeed = parseFloat(btn.dataset.speed);
-            state.live.watch.speed = newSpeed;
-            state.live.watch.possessionsPerTick = Math.max(1, Math.round(newSpeed));
-            
-            // Restart loop with new speed if playing
-            if (state.live.watch.isPlaying) {
-              stopWatchLoop();
-              startWatchLoop();
-            }
-            
-            // Re-render modal to update speed buttons
-            const modal = document.getElementById("watchGameModalRoot");
-            if (modal) {
-              modal.innerHTML = viewWatchGame();
-              updateWatchGameUI();
-            }
-          }
-          
-          // Sim to End button
-          if (e.target.closest('[data-action="watch-sim-end"]')) {
-            const lg = state.ui.liveGame;
-            if (lg) {
-              stopWatchLoop();
-              while (!lg.isFinal) {
-                playNextPossession(lg);
-              }
-              updateWatchGameUI();
-            }
           }
         });
       }
