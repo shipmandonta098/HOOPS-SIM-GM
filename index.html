@@ -1212,11 +1212,11 @@
 
     // Calibration multipliers for realistic stat environment
     const CALIBRATION = {
-      shotMakeFactor: 1.0,   // Adjust shooting make %
-      turnoverFactor: 1.0,   // Adjust TO rate
+      shotMakeFactor: 1.25,  // Boost shooting make % to increase scoring
+      turnoverFactor: 0.72,  // Reduce TO rate
       foulFactor: 1.0,       // Adjust fouls
-      blockFactor: 1.0,      // Adjust blocks
-      stealFactor: 1.0,      // Adjust steals
+      blockFactor: 1.3,      // Boost blocks
+      stealFactor: 0.65,     // Reduce steals  
       oRebFactor: 1.0        // Adjust offensive rebound chance
     };
     const inMemorySaves = [];
@@ -4747,7 +4747,7 @@
         applyScoringMeta(liveGame, offenseTid, pointsScored);
         
         // STEP 6: Assist on made shots (weighted by assist tendency and passing rating)
-        const assistChance = Math.min(0.75, 0.35 + n0((ballHandler.ratings?.pas || 50) / 200) + n0((ballHandler.tendencies?.passFreq || 50) / 250));
+        const assistChance = Math.min(0.65, 0.25 + n0((ballHandler.ratings?.pas || 50) / 250) + n0((ballHandler.tendencies?.passFreq || 50) / 300));
         if (Math.random() < assistChance && shooter.id !== ballHandler.id) {
           bhStats.ast += 1;
           const assist = `(Assist: ${ballHandler.firstName})`;
